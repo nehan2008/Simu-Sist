@@ -17,6 +17,15 @@ const experiments: ExperimentMeta[] = [
     concepts: ['elasticity', 'stress', 'strain', 'bending moment', "Young's modulus"],
     component: lazy(() => import('../experiments/youngs-modulus')),
   },
+  {
+    id: 'torsional-pendulum',
+    title: 'Rigidity Modulus by Torsional Pendulum',
+    tagline: 'Measure the rigidity modulus of a wire by observing torsional oscillations of a platform with attached masses.',
+    subject: 'physics',
+    difficulty: 'intermediate',
+    concepts: ['rigidity', 'torsion', 'moment of inertia', 'oscillation', 'elastic modulus'],
+    component: lazy(() => import('../experiments/torsional-pendulum')),
+  },
 ];
 
 export default experiments;
