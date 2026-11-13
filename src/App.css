@@ -24,6 +24,25 @@
   }
 }
 
+.app-footer {
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid var(--border);
+  padding: 16px 24px 20px;
+  text-align: center;
+
+  p {
+    margin: 0;
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 768px) {
+    padding: 14px 16px 18px;
+  }
+}
+
 /* --- Header ------------------------------------------------- */
 
 .app-header {
@@ -482,10 +501,214 @@
   }
 }
 
+.diffraction-measurements {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  h3 {
+    margin-bottom: 0;
+  }
+}
+
+.diffraction-measurement-readout,
+.diffraction-measurement-hint {
+  margin: 0;
+}
+
+.diffraction-measurement-readout {
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.diffraction-measurement-hint {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diffraction-measurement-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.diffraction-angle-button {
+  min-width: 0;
+  min-height: 48px;
+  justify-content: center;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  transition: filter 0.16s ease, box-shadow 0.16s ease, transform 0.12s ease;
+
+  &:hover:not(:disabled) {
+    opacity: 1;
+    filter: brightness(0.92);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &[data-measured='true'] {
+    border-color: var(--accent-border);
+    background: var(--accent-bg);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent-border);
+
+    &::after {
+      content: '✓';
+      margin-left: 6px;
+      font-size: 12px;
+    }
+  }
+
+  &:disabled {
+    border-color: var(--border);
+    background: var(--code-bg);
+    color: var(--text);
+    opacity: 0.68;
+    box-shadow: none;
+  }
+}
+
+.diffraction-measurement-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.diffraction-measurement-value {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.diffraction-measurement-side {
+  color: var(--text-h);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.diffraction-measurement-status {
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.diffraction-measurement-status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  vertical-align: 1px;
+}
+
+.diffraction-measurement-value.is-measured {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.diffraction-measurement-value.is-measured .diffraction-measurement-status {
+  color: var(--accent);
+}
+
+.diffraction-measurement-value.is-measured .diffraction-measurement-status::before {
+  background: var(--accent);
+}
+
+.diffraction-measurement-value-number {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--text-h);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diffraction-measurement-value.is-measured .diffraction-measurement-value-number {
+  color: var(--accent);
+}
+
+.diffraction-record-button {
+  width: 100%;
+  min-height: 46px;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-weight: 600;
+  transition: filter 0.16s ease, transform 0.12s ease;
+
+  &:hover:not(:disabled) {
+    opacity: 1;
+    filter: brightness(0.92);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:disabled {
+    border-color: var(--border);
+    background: var(--code-bg);
+    color: var(--text);
+    opacity: 0.72;
+  }
+}
+
+.diffraction-live-results {
+  margin-top: 16px;
+}
+
+.diffraction-live-results-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 24px;
+}
+
 .text-muted {
   font-size: 13px;
   color: var(--text);
   margin: 0;
+}
+
+@media (max-width: 900px) {
+  .diffraction-live-results-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .diffraction-live-results-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .diffraction-measurement-actions,
+  .diffraction-measurement-values {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* --- Error / 404 pages ------------------------------------- */

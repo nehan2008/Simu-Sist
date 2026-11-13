@@ -26,6 +26,15 @@ const experiments: ExperimentMeta[] = [
     concepts: ['rigidity', 'torsion', 'moment of inertia', 'oscillation', 'elastic modulus'],
     component: lazy(() => import('../experiments/torsional-pendulum')),
   },
+  {
+    id: 'diffraction-grating',
+    title: 'Laser Wavelength by Diffraction Grating',
+    tagline: 'Determine a laser wavelength from the symmetric diffraction angles produced by a grating.',
+    subject: 'physics',
+    difficulty: 'intermediate',
+    concepts: ['diffraction', 'laser', 'wavelength', 'grating', 'interference'],
+    component: lazy(() => import('../experiments/diffraction-grating')),
+  },
 ];
 
 export default experiments;
