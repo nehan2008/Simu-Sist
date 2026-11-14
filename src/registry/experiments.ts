@@ -53,6 +53,15 @@ const experiments: ExperimentMeta[] = [
     concepts: ['spectrometer', 'prism', 'minimum deviation', 'refraction', 'refractive index', 'speed of light'],
     component: lazy(() => import('../experiments/prism-spectrometer')),
   },
+  {
+    id: 'semiconductor-diode',
+    title: 'Energy Gap of a Semiconductor Diode',
+    tagline: 'Measure reverse current as a diode heats and cools, then estimate its energy gap from the recorded data.',
+    subject: 'physics',
+    difficulty: 'intermediate',
+    concepts: ['semiconductor', 'p-n junction', 'reverse bias', 'energy gap', 'temperature dependence'],
+    component: lazy(() => import('../experiments/semiconductor-diode')),
+  },
 ];
 
 export default experiments;
