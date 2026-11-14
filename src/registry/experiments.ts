@@ -35,6 +35,15 @@ const experiments: ExperimentMeta[] = [
     concepts: ['diffraction', 'laser', 'wavelength', 'grating', 'interference'],
     component: lazy(() => import('../experiments/diffraction-grating')),
   },
+  {
+    id: 'optical-fiber',
+    title: 'Optical Fiber Attenuation Loss & Numerical Aperture',
+    tagline: 'Measure a fiber’s numerical aperture and compare bending and cable losses with a power meter.',
+    subject: 'physics',
+    difficulty: 'intermediate',
+    concepts: ['optical fiber', 'numerical aperture', 'acceptance angle', 'attenuation', 'bending loss'],
+    component: lazy(() => import('../experiments/optical-fiber')),
+  },
 ];
 
 export default experiments;
