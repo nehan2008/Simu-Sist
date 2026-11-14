@@ -44,6 +44,15 @@ const experiments: ExperimentMeta[] = [
     concepts: ['optical fiber', 'numerical aperture', 'acceptance angle', 'attenuation', 'bending loss'],
     component: lazy(() => import('../experiments/optical-fiber')),
   },
+  {
+    id: 'prism-spectrometer',
+    title: 'Speed of Light in a Solid Medium by Prism Minimum Deviation',
+    tagline: 'Use a spectrometer and a solid glass prism to measure minimum deviation, refractive index, and light speed.',
+    subject: 'physics',
+    difficulty: 'intermediate',
+    concepts: ['spectrometer', 'prism', 'minimum deviation', 'refraction', 'refractive index', 'speed of light'],
+    component: lazy(() => import('../experiments/prism-spectrometer')),
+  },
 ];
 
 export default experiments;

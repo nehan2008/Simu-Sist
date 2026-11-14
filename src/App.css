@@ -2312,3 +2312,758 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* --- Prism spectrometer ------------------------------------ */
+
+.prism-layout {
+  grid-template-columns: minmax(0, 1.8fr) minmax(320px, 0.9fr);
+  gap: 18px;
+}
+
+.prism-main-column,
+.prism-apparatus-column,
+.prism-results-column,
+.prism-sidebar {
+  min-width: 0;
+}
+
+.prism-main-column,
+.prism-apparatus-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.prism-live-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(0, 1.7fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.prism-results-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 16px;
+}
+
+.prism-canvas-area {
+  min-height: 0;
+  background: #0f131d;
+}
+
+.prism-canvas {
+  width: 100%;
+}
+
+.prism-controls {
+  gap: 13px;
+  padding: 14px;
+}
+
+.prism-workflow,
+.prism-control-section,
+.prism-manual-entry,
+.prism-record-section {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--canvas-bg, #0f1117);
+}
+
+.prism-section-heading,
+.prism-subsection-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.prism-section-heading {
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+
+.prism-section-heading h2,
+.prism-subsection-heading h2,
+.prism-result-panel h2 {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.prism-section-heading p,
+.prism-subsection-heading p {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.prism-step-number {
+  display: inline-flex;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--accent-border);
+  border-radius: 9px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.prism-workflow-list {
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.prism-workflow-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.prism-workflow-list li > span {
+  display: inline-flex;
+  flex: 0 0 21px;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.prism-workflow-list li.is-current {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.prism-workflow-list li.is-current > span,
+.prism-workflow-list li.is-complete > span {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.prism-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg, #151923);
+}
+
+.prism-mode-toggle button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.prism-mode-toggle button:hover {
+  color: var(--text-h);
+}
+
+.prism-mode-toggle button.is-selected {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.prism-mode-toggle button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.prism-muted {
+  margin: 10px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prism-control-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.prism-control-section .prism-section-heading {
+  margin-bottom: 0;
+}
+
+.prism-range-control {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.prism-range-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.prism-range-heading > label,
+.prism-field-label {
+  color: var(--text-h);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.prism-range-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.prism-range-number input,
+.prism-manual-inputs input,
+.prism-manual-inputs select,
+.prism-manual-entry select {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg, #151923);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.prism-range-number input {
+  width: 76px;
+  text-align: right;
+}
+
+.prism-range-number input:focus-visible,
+.prism-manual-inputs input:focus-visible,
+.prism-manual-inputs select:focus-visible,
+.prism-manual-entry select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.prism-range-control input[type='range'] {
+  width: 100%;
+  margin: 2px 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.prism-range-control input[type='range']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 5px;
+}
+
+.prism-range-control input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.prism-range-limits {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text);
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.prism-alignment-readout,
+.prism-reading-status-grid > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.prism-alignment-readout {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.prism-alignment-readout strong {
+  color: #f0bf72;
+  font-variant-numeric: tabular-nums;
+}
+
+.prism-alignment-readout strong.is-aligned {
+  color: #83d6b7;
+}
+
+.prism-action-button,
+.prism-insert-button,
+.prism-reset-button {
+  min-height: 42px;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.prism-action-button:hover:not(:disabled),
+.prism-insert-button:hover:not(:disabled),
+.prism-reset-button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.prism-reading-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.prism-reading-status-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--code-bg, #151923);
+}
+
+.prism-reading-status-grid span {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.prism-reading-status-grid strong {
+  color: var(--text-h);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.prism-turning-readout {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--code-bg, #151923);
+}
+
+.prism-turning-readout strong {
+  color: var(--text-h);
+  font-size: 12px;
+}
+
+.prism-turning-readout span {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.prism-turning-readout.is-turning {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.prism-turning-readout.is-turning strong {
+  color: var(--accent);
+}
+
+.prism-manual-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.prism-manual-entry legend {
+  padding: 0 5px;
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.prism-manual-readings {
+  display: grid;
+  gap: 9px;
+}
+
+.prism-manual-readings > .prism-muted {
+  margin: 0;
+}
+
+.prism-manual-readings > .prism-formula-note {
+  margin: 0;
+}
+
+.prism-manual-reading {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--code-bg, #151923);
+}
+
+.prism-manual-reading legend {
+  padding: 0 4px;
+  color: var(--text-h);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.prism-manual-total {
+  margin: 0;
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.prism-manual-total strong {
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.prism-manual-differences {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 7px;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-size: 11px;
+}
+
+.prism-manual-differences > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text);
+}
+
+.prism-manual-differences > div strong {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.prism-manual-entry > p {
+  margin: 0;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.prism-manual-entry > select {
+  width: 100%;
+}
+
+.prism-manual-inputs {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 1fr;
+  gap: 8px;
+}
+
+.prism-manual-inputs label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.prism-formula-note {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.prism-record-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.prism-record-section .prism-section-heading {
+  margin-bottom: 0;
+}
+
+.prism-error {
+  margin: 0;
+  color: #f0a3a3;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.prism-reset-button {
+  width: 100%;
+}
+
+.prism-live-panel {
+  padding: 16px;
+}
+
+.prism-live-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.prism-live-grid > div,
+.prism-result-grid > div {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg, #151923);
+}
+
+.prism-live-grid span,
+.prism-result-grid span {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.prism-live-grid strong,
+.prism-result-grid strong {
+  color: var(--text-h);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.prism-live-badge,
+.prism-trial-count {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--code-bg, #151923);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.prism-live-badge.is-turning {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.prism-live-panel .prism-formula-note {
+  margin: 12px 0 0;
+}
+
+.prism-observations,
+.prism-graph-section,
+.prism-result-panel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--canvas-bg, #0f1117);
+}
+
+.prism-observations .section-label {
+  margin: 0 0 4px;
+}
+
+.prism-table-scroll {
+  width: 100%;
+  min-width: 0;
+  margin-top: 14px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.prism-table-scroll .obs-table {
+  min-width: 1080px;
+  font-size: 11px;
+}
+
+.prism-table-scroll .obs-table th,
+.prism-table-scroll .obs-table td {
+  padding: 8px 9px;
+  white-space: nowrap;
+}
+
+.prism-table-scroll .obs-table thead tr:first-child th {
+  text-align: center;
+}
+
+.prism-table-scroll .obs-table td {
+  color: var(--text-h);
+}
+
+.prism-table-scroll .obs-table .observations-empty {
+  color: var(--text);
+  text-align: center;
+  white-space: normal;
+}
+
+.prism-graph-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prism-graph-section .prism-subsection-heading {
+  align-items: center;
+}
+
+.prism-graph-section .prism-subsection-heading > strong {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.prism-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 6px;
+}
+
+.prism-result-panel {
+  grid-column: 1 / -1;
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.prism-result-panel h2 {
+  margin-bottom: 12px;
+  color: var(--accent);
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.prism-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.prism-result-grid > div {
+  background: var(--canvas-bg, #0f1117);
+}
+
+@media (max-width: 1100px) {
+  .prism-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .prism-main-column {
+    display: contents;
+  }
+
+  .prism-sidebar {
+    order: 1;
+    align-self: stretch;
+  }
+
+  .prism-results-column {
+    order: 2;
+    align-self: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prism-live-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .prism-canvas-area {
+    border-radius: 8px;
+  }
+
+  .prism-live-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prism-live-grid {
+    gap: 8px;
+  }
+
+  .prism-live-grid > div,
+  .prism-result-grid > div {
+    padding: 9px;
+  }
+
+  .prism-live-grid strong,
+  .prism-result-grid strong {
+    font-size: 12px;
+  }
+
+  .prism-subsection-heading {
+    align-items: flex-start;
+  }
+
+  .prism-manual-inputs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 380px) {
+  .prism-controls {
+    padding: 10px;
+  }
+
+  .prism-workflow,
+  .prism-control-section,
+  .prism-manual-entry,
+  .prism-manual-reading,
+  .prism-record-section {
+    padding: 11px;
+  }
+
+  .prism-result-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prism-slit-image {
+    transition: none !important;
+  }
+}
