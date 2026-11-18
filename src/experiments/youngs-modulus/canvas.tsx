@@ -164,9 +164,9 @@ export default function ExperimentCanvas({ params, state, microscopeReading }: C
       />
 
       {/* Beam (filled path) */}
-      <path d={beamFill} fill={beamColor} opacity={0.9} />
-      <path d={beamTopPath} fill="none" stroke="#c0ccdd" strokeWidth={1} />
-      <path d={beamBottomPath} fill="none" stroke="#8090a8" strokeWidth={0.5} />
+      <path className="youngs-beam-fill" d={beamFill} fill={beamColor} opacity={0.9} />
+      <path className="youngs-beam-outline" d={beamTopPath} fill="none" stroke="#c0ccdd" strokeWidth={1} />
+      <path className="youngs-beam-outline" d={beamBottomPath} fill="none" stroke="#8090a8" strokeWidth={0.5} />
 
       {/* Hanger hook */}
       <line x1={midX} y1={hangerTopY} x2={midX} y2={hangerBottomY} stroke="#aab0c0" strokeWidth={3} />
@@ -230,7 +230,7 @@ export default function ExperimentCanvas({ params, state, microscopeReading }: C
         // Right end capped at SVG width minus a small margin so it never clips
         const lineRight = Math.min(rulerX + 58, W_SVG - 8);
         return (
-          <g>
+          <g className="youngs-microscope-crosshair">
             <line
               x1={rulerX - 8}
               y1={crosshairY}

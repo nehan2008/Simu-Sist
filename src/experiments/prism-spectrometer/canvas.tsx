@@ -1,15 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   degreesToRadians,
   GLASS_MODEL_REFRACTIVE_INDEX,
   getPrismVertices,
+  normalizeRadians,
+  PRISM_ROTATION_MAX_RAD,
+  PRISM_ROTATION_MIN_RAD,
   radiansToDegrees,
+  wrapRadians,
 } from './simulation';
 import type { Params, Point, State } from './simulation';
 
 interface CanvasProps {
   params: Params;
   state: State;
+  onTelescopeRotationChange: (rotationRad: number) => void;
+  onPrismRotationChange: (rotationRad: number) => void;
 }
 
 const WIDTH = 1080;
@@ -38,7 +45,120 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function WideCanvas({ params, state }: CanvasProps) {
+type RotationTarget = 'telescope' | 'prism';
+
+interface RotationDrag {
+  target: RotationTarget;
+  pointerId: number;
+  center: Point;
+  startPointerRad: number;
+  startRotationRad: number;
+}
+
+function getSvgPoint(event: ReactPointerEvent<SVGElement>): Point | null {
+  const svg = event.currentTarget instanceof SVGSVGElement
+    ? event.currentTarget
+    : event.currentTarget.ownerSVGElement;
+  const screenMatrix = svg?.getScreenCTM();
+  if (!svg || !screenMatrix) return null;
+
+  const point = svg.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  const localPoint = point.matrixTransform(screenMatrix.inverse());
+  return { x: localPoint.x, y: localPoint.y };
+}
+
+function getPointerAngle(point: Point, center: Point): number {
+  return Math.atan2(center.y - point.y, point.x - center.x);
+}
+
+function useApparatusRotation(
+  params: Params,
+  onTelescopeRotationChange: CanvasProps['onTelescopeRotationChange'],
+  onPrismRotationChange: CanvasProps['onPrismRotationChange'],
+) {
+  const drag = useRef<RotationDrag | null>(null);
+
+  function beginDrag(
+    target: RotationTarget,
+    event: ReactPointerEvent<SVGElement>,
+    center: Point,
+  ) {
+    if (event.button !== 0) return;
+    const point = getSvgPoint(event);
+    if (!point) return;
+
+    const svg = event.currentTarget instanceof SVGSVGElement
+      ? event.currentTarget
+      : event.currentTarget.ownerSVGElement;
+    svg?.setPointerCapture(event.pointerId);
+    drag.current = {
+      target,
+      pointerId: event.pointerId,
+      center,
+      startPointerRad: getPointerAngle(point, center),
+      startRotationRad: target === 'telescope' ? params.telescopeRotationRad : params.prismRotationRad,
+    };
+    event.preventDefault();
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<SVGElement>) {
+    const activeDrag = drag.current;
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
+    const point = getSvgPoint(event);
+    if (!point) return;
+
+    const pointerDelta = wrapRadians(getPointerAngle(point, activeDrag.center) - activeDrag.startPointerRad);
+    const nextRotation = activeDrag.startRotationRad + pointerDelta;
+    if (activeDrag.target === 'telescope') {
+      onTelescopeRotationChange(normalizeRadians(nextRotation));
+    } else {
+      onPrismRotationChange(clamp(nextRotation, PRISM_ROTATION_MIN_RAD, PRISM_ROTATION_MAX_RAD));
+    }
+  }
+
+  function finishDrag(event: ReactPointerEvent<SVGElement>) {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = null;
+    const svg = event.currentTarget instanceof SVGSVGElement
+      ? event.currentTarget
+      : event.currentTarget.ownerSVGElement;
+    if (svg?.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+  }
+
+  function handleKeyDown(target: RotationTarget, event: ReactKeyboardEvent<SVGElement>) {
+    const isForward = event.key === 'ArrowRight' || event.key === 'ArrowUp';
+    const isBackward = event.key === 'ArrowLeft' || event.key === 'ArrowDown';
+    if (!isForward && !isBackward) return;
+    event.preventDefault();
+
+    const direction = isForward ? 1 : -1;
+    if (target === 'telescope') {
+      const step = degreesToRadians(event.shiftKey ? 1 / 60 : 1);
+      onTelescopeRotationChange(normalizeRadians(params.telescopeRotationRad + direction * step));
+      return;
+    }
+    const step = degreesToRadians(event.shiftKey ? 0.1 : 1);
+    onPrismRotationChange(
+      clamp(params.prismRotationRad + direction * step, PRISM_ROTATION_MIN_RAD, PRISM_ROTATION_MAX_RAD),
+    );
+  }
+
+  return { beginDrag, handlePointerMove, finishDrag, handleKeyDown };
+}
+
+function WideCanvas({
+  params,
+  state,
+  onTelescopeRotationChange,
+  onPrismRotationChange,
+}: CanvasProps) {
+  const rotationInteraction = useApparatusRotation(
+    params,
+    onTelescopeRotationChange,
+    onPrismRotationChange,
+  );
   const vertices = getPrismVertices(params.prismRotationRad).map(toCanvasPoint);
   const prismPoints = vertices.map(({ x, y }) => `${x},${y}`).join(' ');
   const ray = state.ray;
@@ -75,6 +195,7 @@ function WideCanvas({ params, state }: CanvasProps) {
   const slitImageOffset = clamp(170 * Math.tan(state.imageOffsetRad), -36, 36);
   const slitOpeningPx = clamp(params.slitWidthM * 1000 * 3, 1.2, 8);
   const prismRotationDegrees = radiansToDegrees(params.prismRotationRad);
+  const telescopeRotationDegrees = radiansToDegrees(normalizeRadians(params.telescopeRotationRad));
   const outgoingAngleDegrees = radiansToDegrees(state.outgoingAngleRad);
   const directBeam = !params.prismInserted;
 
@@ -84,9 +205,12 @@ function WideCanvas({ params, state }: CanvasProps) {
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       preserveAspectRatio="xMidYMid meet"
       className="experiment-canvas prism-canvas"
-      role="img"
+      role="group"
       aria-label={`Spectrometer with a ${params.prismInserted ? 'rotating glass prism' : 'direct ray'}. Prism rotation ${prismRotationDegrees.toFixed(1)} degrees; refracted ray direction ${outgoingAngleDegrees.toFixed(2)} degrees.`}
       style={{ display: 'block' }}
+      onPointerMove={rotationInteraction.handlePointerMove}
+      onPointerUp={rotationInteraction.finishDrag}
+      onPointerCancel={rotationInteraction.finishDrag}
     >
       <defs>
         <linearGradient id="prism-metal" x1="0" x2="1" y1="0" y2="1">
@@ -202,6 +326,23 @@ function WideCanvas({ params, state }: CanvasProps) {
             </g>
           );
         })}
+        <circle
+          cx={CENTER.x}
+          cy={CENTER.y}
+          r={SCALE_RADIUS - 4}
+          fill="transparent"
+          pointerEvents="all"
+          role="slider"
+          tabIndex={0}
+          aria-label="Telescope angular dial"
+          aria-valuemin={0}
+          aria-valuemax={360}
+          aria-valuenow={Number(telescopeRotationDegrees.toFixed(2))}
+          aria-valuetext={`${telescopeRotationDegrees.toFixed(2)} degrees`}
+          style={{ cursor: 'grab', touchAction: 'none' }}
+          onPointerDown={(event) => rotationInteraction.beginDrag('telescope', event, CENTER)}
+          onKeyDown={(event) => rotationInteraction.handleKeyDown('telescope', event)}
+        />
       </g>
 
       <g aria-label="Sodium vapour lamp and collimator">
@@ -243,7 +384,23 @@ function WideCanvas({ params, state }: CanvasProps) {
         </text>
       </g>
 
-      <g aria-label="Rotating prism table">
+      <g
+        aria-label="Rotating prism table"
+        role="slider"
+        tabIndex={0}
+        aria-valuemin={radiansToDegrees(PRISM_ROTATION_MIN_RAD)}
+        aria-valuemax={radiansToDegrees(PRISM_ROTATION_MAX_RAD)}
+        aria-valuenow={Number(prismRotationDegrees.toFixed(1))}
+        aria-valuetext={`${prismRotationDegrees.toFixed(1)} degrees`}
+        aria-disabled={!params.prismInserted}
+        style={{ cursor: params.prismInserted ? 'grab' : 'not-allowed', touchAction: 'none' }}
+        onPointerDown={(event) => {
+          if (params.prismInserted) rotationInteraction.beginDrag('prism', event, CENTER);
+        }}
+        onKeyDown={(event) => {
+          if (params.prismInserted) rotationInteraction.handleKeyDown('prism', event);
+        }}
+      >
         <circle cx={CENTER.x} cy={CENTER.y} r="119" fill="url(#prism-metal)" stroke="#8290a4" strokeWidth="1.3" />
         <circle cx={CENTER.x} cy={CENTER.y} r="105" fill="#182233" stroke="#47576d" strokeWidth="1" />
         <circle cx={CENTER.x} cy={CENTER.y} r="12" fill="#101722" stroke="#a2afc1" strokeWidth="2" />
@@ -338,7 +495,11 @@ function WideCanvas({ params, state }: CanvasProps) {
         )}
       </g>
 
-      <g aria-label="Rotatable telescope">
+      <g
+        aria-label="Rotatable telescope"
+        style={{ cursor: 'grab', touchAction: 'none' }}
+        onPointerDown={(event) => rotationInteraction.beginDrag('telescope', event, CENTER)}
+      >
         <line
           x1={telescopeStart.x}
           y1={telescopeStart.y}
@@ -419,7 +580,7 @@ function WideCanvas({ params, state }: CanvasProps) {
           Table φ: {prismRotationDegrees.toFixed(1)}°
         </text>
         <text x="852" y="343" fill="#e2e8f0" fontSize="11">
-          Telescope: {radiansToDegrees(params.telescopeRotationRad).toFixed(1)}°
+          Telescope: {telescopeRotationDegrees.toFixed(2)}°
         </text>
         <text x="852" y="365" fill="#e2e8f0" fontSize="11">
           Ray direction: {outgoingAngleDegrees.toFixed(2)}°
@@ -436,10 +597,20 @@ function WideCanvas({ params, state }: CanvasProps) {
   );
 }
 
-function CompactCanvas({ params, state }: CanvasProps) {
+function CompactCanvas({
+  params,
+  state,
+  onTelescopeRotationChange,
+  onPrismRotationChange,
+}: CanvasProps) {
   const center = { x: 195, y: 305 };
   const prismScale = 61;
   const scaleRadius = 126;
+  const rotationInteraction = useApparatusRotation(
+    params,
+    onTelescopeRotationChange,
+    onPrismRotationChange,
+  );
   const vertices = getPrismVertices(params.prismRotationRad).map((point) => ({
     x: center.x + point.x * prismScale,
     y: center.y - point.y * prismScale,
@@ -473,6 +644,8 @@ function CompactCanvas({ params, state }: CanvasProps) {
   const slitOpeningPx = clamp(params.slitWidthM * 1000 * 3, 1.2, 8);
   const imageOffset = clamp(170 * Math.tan(state.imageOffsetRad), -22, 22);
   const directBeam = !params.prismInserted;
+  const telescopeRotationDegrees = radiansToDegrees(normalizeRadians(params.telescopeRotationRad));
+  const prismRotationDegrees = radiansToDegrees(params.prismRotationRad);
 
   return (
     <svg
@@ -480,9 +653,12 @@ function CompactCanvas({ params, state }: CanvasProps) {
       viewBox="0 0 390 620"
       preserveAspectRatio="xMidYMid meet"
       className="experiment-canvas prism-canvas prism-canvas-compact"
-      role="img"
+      role="group"
       aria-label={`Compact spectrometer view. ${params.prismInserted ? 'Glass prism inserted' : 'Direct ray mode'}. Prism rotation ${radiansToDegrees(params.prismRotationRad).toFixed(1)} degrees; refracted ray ${radiansToDegrees(state.outgoingAngleRad).toFixed(2)} degrees.`}
       style={{ display: 'block' }}
+      onPointerMove={rotationInteraction.handlePointerMove}
+      onPointerUp={rotationInteraction.finishDrag}
+      onPointerCancel={rotationInteraction.finishDrag}
     >
       <defs>
         <linearGradient id="prism-compact-metal" x1="0" x2="1" y1="0" y2="1">
@@ -547,6 +723,23 @@ function CompactCanvas({ params, state }: CanvasProps) {
           r="4"
           fill="#f7be69"
         />
+        <circle
+          cx={center.x}
+          cy={center.y}
+          r={scaleRadius - 3}
+          fill="transparent"
+          pointerEvents="all"
+          role="slider"
+          tabIndex={0}
+          aria-label="Telescope angular dial"
+          aria-valuemin={0}
+          aria-valuemax={360}
+          aria-valuenow={Number(telescopeRotationDegrees.toFixed(2))}
+          aria-valuetext={`${telescopeRotationDegrees.toFixed(2)} degrees`}
+          style={{ cursor: 'grab', touchAction: 'none' }}
+          onPointerDown={(event) => rotationInteraction.beginDrag('telescope', event, center)}
+          onKeyDown={(event) => rotationInteraction.handleKeyDown('telescope', event)}
+        />
         <text x={center.x - 26} y={center.y + scaleRadius + 25} fill="#b9c6d9" fontSize="8" fontWeight="700">
           CIRCULAR SCALE · VERNIERS A / B
         </text>
@@ -576,7 +769,23 @@ function CompactCanvas({ params, state }: CanvasProps) {
         </text>
       </g>
 
-      <g aria-label="Rotating glass prism table">
+      <g
+        aria-label="Rotating glass prism table"
+        role="slider"
+        tabIndex={0}
+        aria-valuemin={radiansToDegrees(PRISM_ROTATION_MIN_RAD)}
+        aria-valuemax={radiansToDegrees(PRISM_ROTATION_MAX_RAD)}
+        aria-valuenow={Number(prismRotationDegrees.toFixed(1))}
+        aria-valuetext={`${prismRotationDegrees.toFixed(1)} degrees`}
+        aria-disabled={!params.prismInserted}
+        style={{ cursor: params.prismInserted ? 'grab' : 'not-allowed', touchAction: 'none' }}
+        onPointerDown={(event) => {
+          if (params.prismInserted) rotationInteraction.beginDrag('prism', event, center);
+        }}
+        onKeyDown={(event) => {
+          if (params.prismInserted) rotationInteraction.handleKeyDown('prism', event);
+        }}
+      >
         <circle cx={center.x} cy={center.y} r="82" fill="url(#prism-compact-metal)" stroke="#8290a4" />
         <circle cx={center.x} cy={center.y} r="71" fill="#182233" stroke="#47576d" />
         <line
@@ -618,7 +827,11 @@ function CompactCanvas({ params, state }: CanvasProps) {
         )}
       </g>
 
-      <g aria-label="Rotatable telescope">
+      <g
+        aria-label="Rotatable telescope"
+        style={{ cursor: 'grab', touchAction: 'none' }}
+        onPointerDown={(event) => rotationInteraction.beginDrag('telescope', event, center)}
+      >
         <line
           x1={telescopeStart.x}
           y1={telescopeStart.y}
@@ -674,7 +887,7 @@ function CompactCanvas({ params, state }: CanvasProps) {
 
       <rect x="12" y="558" width="366" height="42" rx="8" fill="#151e2c" stroke="#405069" />
       <text x="24" y="576" fill="#e2e8f0" fontSize="9.5">
-        φ {radiansToDegrees(params.prismRotationRad).toFixed(1)}° · ray {radiansToDegrees(state.outgoingAngleRad).toFixed(2)}°
+        φ {prismRotationDegrees.toFixed(1)}° · telescope {telescopeRotationDegrees.toFixed(2)}° · ray {radiansToDegrees(state.outgoingAngleRad).toFixed(2)}°
       </text>
       <text x="24" y="591" fill={state.atTurningPoint ? '#8de0c1' : '#a9b5c8'} fontSize="8.5" fontWeight="700">
         {state.atTurningPoint ? 'MINIMUM-DEVIATION TURNING POINT' : state.telescopeAligned ? 'CROSSWIRE ALIGNED' : 'FOLLOW IMAGE TO THE TURNING POINT'}

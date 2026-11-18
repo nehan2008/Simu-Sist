@@ -104,6 +104,10 @@ export function radiansToDegrees(radians: number): number {
   return radians * 180 / Math.PI;
 }
 
+export function normalizeRadians(radians: number): number {
+  return ((radians % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+}
+
 export function wrapRadians(radians: number): number {
   return ((radians + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 }
@@ -408,7 +412,7 @@ export function vernierReadingArcMinutes(reading: VernierReading): number | null
 /** Convert an apparatus angle to MSR + VSC with a 1′ least count. */
 export function vernierReadingFromAngle(angleRad: number): VernierReading | null {
   if (!Number.isFinite(angleRad)) return null;
-  const normalizedRadians = ((angleRad % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const normalizedRadians = normalizeRadians(angleRad);
   const totalArcMinutes = Math.round(radiansToDegrees(normalizedRadians) * 60) % FULL_CIRCLE_ARCMIN;
   const mainScaleArcMinutes =
     Math.floor(totalArcMinutes / MAIN_SCALE_DIVISION_ARCMIN) * MAIN_SCALE_DIVISION_ARCMIN;

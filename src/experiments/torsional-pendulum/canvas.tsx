@@ -43,7 +43,7 @@ export default function ExperimentCanvas({
       preserveAspectRatio="xMidYMid meet"
       className="experiment-canvas"
       role="img"
-      aria-label="Torsional pendulum with a fixed suspension wire, circular platform, and two movable masses"
+      aria-label={`Torsional pendulum with a circular platform and ${params.massesAttached ? 'two attached masses' : 'no attached masses; platform-only T0 configuration'}`}
       style={{ display: 'block' }}
     >
       <rect y={VIEWBOX_TOP} width={WIDTH} height={HEIGHT} fill="#0f1117" />
@@ -108,19 +108,21 @@ export default function ExperimentCanvas({
         stroke="#9ca5ff"
         strokeWidth="2"
       />
-      <line
-        x1={CENTER_X}
-        y1={platformY}
-        x2={mass1.x}
-        y2={mass1.y}
-        stroke="#e4e8ff"
-        strokeWidth="1.5"
-        strokeDasharray="4 3"
-        opacity="0.8"
-      />
+      {params.massesAttached && (
+        <line
+          x1={CENTER_X}
+          y1={platformY}
+          x2={mass1.x}
+          y2={mass1.y}
+          stroke="#e4e8ff"
+          strokeWidth="1.5"
+          strokeDasharray="4 3"
+          opacity="0.8"
+        />
+      )}
       <circle cx={CENTER_X} cy={platformY} r="5" fill="#eef0ff" />
 
-      {[mass1, mass2].map((position, index) => (
+      {(params.massesAttached ? [mass1, mass2] : []).map((position, index) => (
         <g key={index} transform={`translate(${position.x} ${position.y})`}>
           <ellipse cx="0" cy="2" rx="14" ry="6" fill="#75491f" />
           <rect x="-14" y="-13" width="28" height="15" rx="3" fill="url(#torsion-mass)" />
@@ -155,7 +157,9 @@ export default function ExperimentCanvas({
         Circular platform · R = {(params.R * 100).toFixed(1)} cm
       </text>
       <text x={CENTER_X} y={platformY + platformRy + 45} textAnchor="middle" fill="#b8c2dc" fontSize="10">
-        Two equal masses · m = {params.m.toFixed(2)} kg each · d = {(params.d * 100).toFixed(1)} cm
+        {params.massesAttached
+          ? `Two equal masses · m = ${params.m.toFixed(2)} kg each · d = ${(params.d * 100).toFixed(1)} cm`
+          : 'No attached masses · platform-only T₀ configuration'}
       </text>
 
       <rect x="525" y="26" width="205" height="90" rx="8" fill="#191e2c" stroke="#343c50" />

@@ -1,11 +1,10 @@
-import { SCREEN_DISTANCE_M } from './simulation';
 import type { Params, State } from './simulation';
 
 interface CanvasProps {
   params: Params;
   state: State;
-  measuredLeftAngle: number | null;
-  measuredRightAngle: number | null;
+  measuredLeftX: number | null;
+  measuredRightX: number | null;
 }
 
 const WIDTH = 1040;
@@ -24,15 +23,18 @@ function angleArcPath(x: number, y: number, radius: number, angle: number, lower
 export default function ExperimentCanvas({
   params,
   state,
-  measuredLeftAngle,
-  measuredRightAngle,
+  measuredLeftX,
+  measuredRightX,
 }: CanvasProps) {
   const finiteOffsets = state.orders
     .filter((order) => order.reachesScreen)
     .map((order) => order.positionM);
   const largestPosition = Math.max(...finiteOffsets, 0.1);
-  const scale = Math.min(MAX_SCALE_PX_PER_M, MAX_SCREEN_OFFSET / largestPosition);
-  const screenX = GRATING_X + scale * SCREEN_DISTANCE_M;
+  const scale = Math.min(
+    MAX_SCALE_PX_PER_M,
+    MAX_SCREEN_OFFSET / Math.max(largestPosition, params.screenDistanceM),
+  );
+  const screenX = GRATING_X + scale * params.screenDistanceM;
   const sourceX = Math.max(26, GRATING_X - scale * 0.85 - 112);
   const laserWindowX = sourceX + 104;
   const selected = state.orders.find((order) => order.order === state.selectedOrder);
@@ -45,7 +47,7 @@ export default function ExperimentCanvas({
       preserveAspectRatio="xMidYMid meet"
       className="experiment-canvas diffraction-canvas"
       role="img"
-      aria-label={`Laser diffraction grating apparatus. Wavelength ${params.wavelengthNm} nanometres, grating density ${params.gratingLinesPerMm} lines per millimetre, selected order ${params.order}.`}
+      aria-label={`Laser diffraction grating apparatus. Grating density ${params.gratingLinesPerM} lines per metre, screen distance ${params.screenDistanceM} metres, selected order ${params.order}.`}
       style={{ display: 'block' }}
     >
       <style>{`
@@ -83,7 +85,7 @@ export default function ExperimentCanvas({
       <rect width={WIDTH} height={HEIGHT} rx="12" fill="#0f131d" />
       <path d="M 28 586 H 1012" stroke="#283246" strokeWidth="1" />
       <text x="34" y="34" fill="#94a3b8" fontSize="12" fontWeight="700" letterSpacing="1.5">
-        OPTICAL BENCH · {params.wavelengthNm} nm · {params.gratingLinesPerMm} lines/mm
+        OPTICAL BENCH · {params.gratingLinesPerM} lines/m
       </text>
 
       <line
@@ -114,9 +116,6 @@ export default function ExperimentCanvas({
       <circle cx={sourceX + 39} cy={CENTER_Y} r="4" fill={state.laserColor} filter="url(#grating-laser-glow)" />
       <text x={sourceX + 56} y={CENTER_Y - 44} fill="#cbd5e1" fontSize="10" textAnchor="middle">
         LASER
-      </text>
-      <text x={sourceX + 56} y={CENTER_Y + 53} fill="#93a1b7" fontSize="10" textAnchor="middle">
-        {params.wavelengthNm} nm
       </text>
 
       <line
@@ -243,7 +242,7 @@ export default function ExperimentCanvas({
         GRATING
       </text>
       <text x={GRATING_X} y="600" fill="#94a3b8" fontSize="10" textAnchor="middle">
-        d = {(state.gratingSpacingM * 1e6).toFixed(2)} μm
+        1/N = {(state.gratingSpacingM * 1e6).toFixed(2)} μm
       </text>
 
       <rect x={screenX - 10} y="54" width="20" height="532" rx="5" fill="#202b3c" stroke="#61718a" strokeWidth="1.5" />
@@ -297,10 +296,10 @@ export default function ExperimentCanvas({
       <line x1={GRATING_X} y1="625" x2={screenX} y2="625" stroke="#8190a8" strokeWidth="1" />
       <path d={`M ${GRATING_X} 625 l 8 -4 v 8 z M ${screenX} 625 l -8 -4 v 8 z`} fill="#8190a8" />
       <text x={(GRATING_X + screenX) / 2} y="644" fill="#9eacc1" fontSize="11" textAnchor="middle">
-        L = {SCREEN_DISTANCE_M.toFixed(2)} m
+        d = {params.screenDistanceM.toFixed(2)} m
       </text>
       <text x="36" y="662" fill="#728198" fontSize="9">
-        Ray slopes use θ; screen coordinates use y = L tan(θ).
+        Ray slopes use θ; screen coordinates use x = d tan(θ).
       </text>
 
       <rect x="764" y="86" width="244" height="104" rx="9" fill="#161f2d" stroke="#344258" />
@@ -312,18 +311,18 @@ export default function ExperimentCanvas({
         θ = {selected ? `${selected.angleDegrees.toFixed(2)}°` : '—'}
       </text>
       <text x="781" y="178" fill="#a9b5c8" fontSize="11">
-        y = {selected?.reachesScreen ? `${selected.positionM.toFixed(3)} m` : '∞ (grazing)'}
+        x = {selected?.reachesScreen ? `${selected.positionM.toFixed(3)} m` : '∞ (grazing)'}
       </text>
 
       <rect x="764" y="204" width="244" height="104" rx="9" fill="#161f2d" stroke="#344258" />
       <text x="781" y="228" fill="#9eacc1" fontSize="10">ANGLE MEASUREMENTS</text>
       <text x="781" y="254" fill="#dbe5f2" fontSize="12">
-        Left |θL|: {measuredLeftAngle === null ? '—' : `${measuredLeftAngle.toFixed(2)}°`}
+        Left x: {measuredLeftX === null ? '—' : `${measuredLeftX.toFixed(4)} m`}
       </text>
       <text x="781" y="278" fill="#dbe5f2" fontSize="12">
-        Right |θR|: {measuredRightAngle === null ? '—' : `${measuredRightAngle.toFixed(2)}°`}
+        Right x: {measuredRightX === null ? '—' : `${measuredRightX.toFixed(4)} m`}
       </text>
-      <text x="781" y="296" fill="#8190a8" fontSize="9">Measured values appear after each reading.</text>
+      <text x="781" y="296" fill="#8190a8" fontSize="9">Record both spot distances from the centre.</text>
 
       {!state.selectedReachesScreen && state.selectedOrder > 0 && (
         <text x="764" y="332" fill="#f4b76b" fontSize="10">
@@ -334,13 +333,13 @@ export default function ExperimentCanvas({
       <rect x="764" y="365" width="244" height="126" rx="9" fill="#161f2d" stroke="#344258" />
       <text x="781" y="390" fill="#9eacc1" fontSize="10">GRATING RELATION</text>
       <text x="781" y="420" fill="#e2e8f0" fontSize="17" fontFamily="serif">
-        d sin θ = n λ
+        sin θ = n N λ
       </text>
       <text x="781" y="446" fill="#9eacc1" fontSize="11">
-        d = 1 / (lines per metre)
+        N is grating density (lines/m)
       </text>
       <text x="781" y="468" fill="#9eacc1" fontSize="11">
-        Allowed when |nλ/d| ≤ 1
+        Allowed when |nNλ| ≤ 1
       </text>
     </svg>
   );

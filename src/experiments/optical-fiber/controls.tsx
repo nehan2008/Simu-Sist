@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import {
+  MAX_CUSTOM_FIBER_LENGTH_M,
+  MAX_SCREEN_DISTANCE_CM,
+  MIN_CUSTOM_FIBER_LENGTH_M,
+  MIN_SCREEN_DISTANCE_CM,
   POWER_READING_DESCRIPTIONS,
   POWER_READING_IDS,
   SCREEN_CIRCLE_DIAMETERS_MM,
@@ -74,20 +78,28 @@ function FiberNumericInput({
 
 interface ControlsProps {
   selectedPowerReading: PowerReadingId;
+  customCableLengthM: number;
+  recordedCustomLengthM: number | null;
+  customEstimateDb: number | null;
   powerValueDraft: string;
   recordedPowerReadings: Partial<Record<PowerReadingId, number>>;
   powerValueError: string;
   onPowerReadingChange: (reading: PowerReadingId) => void;
+  onCustomCableLengthChange: (lengthM: number) => void;
   onPowerValueChange: (value: string) => void;
   onRecordPowerReading: () => void;
 }
 
 export default function Controls({
   selectedPowerReading,
+  customCableLengthM,
+  recordedCustomLengthM,
+  customEstimateDb,
   powerValueDraft,
   recordedPowerReadings,
   powerValueError,
   onPowerReadingChange,
+  onCustomCableLengthChange,
   onPowerValueChange,
   onRecordPowerReading,
 }: ControlsProps) {
@@ -118,12 +130,39 @@ export default function Controls({
           >
             {POWER_READING_IDS.map((id) => (
               <option key={id} value={id}>
-                {id} · {POWER_READING_DESCRIPTIONS[id]}
-                {recordedPowerReadings[id] === undefined ? '' : ' · recorded'}
+                {id} · {id === 'P06'
+                  ? `Custom length · ${customCableLengthM.toFixed(2)} m`
+                  : POWER_READING_DESCRIPTIONS[id]}
+                {recordedPowerReadings[id] === undefined
+                  ? ''
+                  : id === 'P06' && recordedCustomLengthM !== null
+                    ? ` · recorded at ${recordedCustomLengthM.toFixed(2)} m`
+                    : ' · recorded'}
               </option>
             ))}
           </select>
         </label>
+        {selectedPowerReading === 'P06' && (
+          <div className="fiber-custom-cable">
+            <FiberNumericInput
+              id="fiber-custom-cable-length"
+              label="Custom cable length"
+              value={customCableLengthM}
+              min={MIN_CUSTOM_FIBER_LENGTH_M}
+              max={MAX_CUSTOM_FIBER_LENGTH_M}
+              unit="m"
+              onChange={onCustomCableLengthChange}
+            />
+            <p className="fiber-control-hint">
+              Linear model: slope = (P03 − P01)/(5 m − 1 m); P(L) = P01 + slope(L − 1 m), using your straight-cable readings.
+            </p>
+            <p className="fiber-custom-estimate" role="status">
+              {customEstimateDb === null
+                ? 'Record P01 and P03 to show the custom-length meter estimate.'
+                : `Estimated meter reading at ${customCableLengthM.toFixed(2)} m: ${customEstimateDb.toFixed(2)} dB`}
+            </p>
+          </div>
+        )}
         <label className="fiber-power-input" htmlFor="fiber-power-value">
           <span className="fiber-power-input-heading">
             <span>Manual Power Meter Reading</span>
@@ -196,8 +235,8 @@ export function NumericalApertureControls({
             id="fiber-na-screen-distance"
             label="Screen distance (L)"
             value={Number((params.screenDistanceM * 100).toFixed(6))}
-            min={2}
-            max={50}
+            min={MIN_SCREEN_DISTANCE_CM}
+            max={MAX_SCREEN_DISTANCE_CM}
             unit="cm"
             onChange={(value) => onParamsChange({ screenDistanceM: value / 100 })}
           />

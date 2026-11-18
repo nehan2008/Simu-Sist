@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import Controls, { NumericalApertureControls } from './controls';
 import ExperimentCanvas from './canvas';
 import {
+  DEFAULT_CUSTOM_FIBER_LENGTH_M,
   DEFAULT_NA_PARAMS,
   POWER_READING_DESCRIPTIONS,
   POWER_READING_IDS,
@@ -9,6 +10,7 @@ import {
   computeNumericalAperture,
   computeNumericalApertureResult,
   createNumericalApertureReading,
+  estimateCustomPowerMeterValueDb,
   isValidPowerMeterValue,
 } from './simulation';
 import type {
@@ -122,7 +124,7 @@ function AttenuationGraph({
         viewBox={`0 0 ${width} ${height}`}
         className="svg-graph fiber-svg-graph"
         role="img"
-        aria-label="Signed power-meter reading differences for the four attenuation comparisons"
+        aria-label="Signed power-meter reading differences for five attenuation comparisons"
       >
         <rect width={width} height={height} rx="6" fill="var(--code-bg)" />
         <line x1={centerX} y1="8" x2={centerX} y2={height - 8} stroke="var(--text-h)" strokeDasharray="3 4" />
@@ -171,6 +173,8 @@ export default function OpticalFiberExperiment() {
   const [naReadings, setNaReadings] = useState<NumericalApertureReading[]>([]);
   const [naError, setNaError] = useState('');
   const [selectedPowerReading, setSelectedPowerReading] = useState<PowerReadingId>('P01');
+  const [customCableLengthM, setCustomCableLengthM] = useState(DEFAULT_CUSTOM_FIBER_LENGTH_M);
+  const [recordedCustomLengthM, setRecordedCustomLengthM] = useState<number | null>(null);
   const [powerValueDraft, setPowerValueDraft] = useState('');
   const [powerValueError, setPowerValueError] = useState('');
   const [powerReadings, setPowerReadings] = useState<Partial<Record<PowerReadingId, number>>>({});
@@ -180,14 +184,36 @@ export default function OpticalFiberExperiment() {
     [params.screenDistanceM, params.spotDiameterM],
   );
   const naResult = useMemo(() => computeNumericalApertureResult(naReadings), [naReadings]);
+  const customEstimateDb = useMemo(
+    () => estimateCustomPowerMeterValueDb(powerReadings, customCableLengthM),
+    [powerReadings, customCableLengthM],
+  );
   const attenuationComparisons = useMemo(
-    () => calculateAttenuationComparisons(powerReadings),
-    [powerReadings],
+    () => calculateAttenuationComparisons(
+      powerReadings,
+      customCableLengthM,
+      recordedCustomLengthM,
+    ),
+    [powerReadings, customCableLengthM, recordedCustomLengthM],
   );
   const draftPowerValue = powerValueDraft.trim() === '' ? Number.NaN : Number(powerValueDraft);
-  const powerMeterValue = powerValueDraft.trim() === ''
-    ? powerReadings[selectedPowerReading] ?? null
-    : isValidPowerMeterValue(draftPowerValue) ? draftPowerValue : null;
+  const hasCurrentCustomReading =
+    recordedCustomLengthM !== null &&
+    Math.abs(recordedCustomLengthM - customCableLengthM) < 1e-9;
+  const powerMeterValue = powerValueDraft.trim() !== ''
+    ? isValidPowerMeterValue(draftPowerValue) ? draftPowerValue : null
+    : selectedPowerReading === 'P06'
+      ? hasCurrentCustomReading
+        ? powerReadings.P06 ?? null
+        : customEstimateDb
+      : powerReadings[selectedPowerReading] ?? null;
+  const powerMeterValueSource = powerValueDraft.trim() !== '' && isValidPowerMeterValue(draftPowerValue)
+    ? 'manual'
+    : selectedPowerReading === 'P06'
+      ? hasCurrentCustomReading
+        ? 'manual'
+        : customEstimateDb === null ? null : 'length-model'
+      : powerMeterValue === null ? null : 'manual';
 
   function handleParamsChange(updated: Partial<NumericalApertureParams>) {
     setParams((previous) => ({ ...previous, ...updated }));
@@ -197,7 +223,7 @@ export default function OpticalFiberExperiment() {
   function handleRecordNaReading() {
     const reading = createNumericalApertureReading(naReadings.length + 1, params);
     if (!reading) {
-      setNaError('Enter a positive screen distance and spot diameter before recording.');
+      setNaError('Enter a screen distance from 0.1 to 50 cm and a positive spot diameter before recording.');
       return;
     }
 
@@ -207,7 +233,19 @@ export default function OpticalFiberExperiment() {
 
   function handlePowerReadingChange(id: PowerReadingId) {
     setSelectedPowerReading(id);
-    setPowerValueDraft(powerReadings[id] === undefined ? '' : String(powerReadings[id]));
+    const savedValueMatchesConfiguration =
+      id !== 'P06' || recordedCustomLengthM === customCableLengthM;
+    setPowerValueDraft(
+      powerReadings[id] === undefined || !savedValueMatchesConfiguration
+        ? ''
+        : String(powerReadings[id]),
+    );
+    setPowerValueError('');
+  }
+
+  function handleCustomCableLengthChange(lengthM: number) {
+    setCustomCableLengthM(lengthM);
+    if (selectedPowerReading === 'P06') setPowerValueDraft('');
     setPowerValueError('');
   }
 
@@ -236,6 +274,9 @@ export default function OpticalFiberExperiment() {
       ...previous,
       [selectedPowerReading]: draftPowerValue,
     }));
+    if (selectedPowerReading === 'P06') {
+      setRecordedCustomLengthM(customCableLengthM);
+    }
     setPowerValueError('');
   }
 
@@ -245,6 +286,8 @@ export default function OpticalFiberExperiment() {
     setNaReadings([]);
     setNaError('');
     setSelectedPowerReading('P01');
+    setCustomCableLengthM(DEFAULT_CUSTOM_FIBER_LENGTH_M);
+    setRecordedCustomLengthM(null);
     setPowerValueDraft('');
     setPowerValueError('');
     setPowerReadings({});
@@ -283,7 +326,9 @@ export default function OpticalFiberExperiment() {
               params={params}
               selectedPowerReading={selectedPowerReading}
               powerMeterValue={powerMeterValue}
+              powerMeterValueSource={powerMeterValueSource}
               recordedPowerReadings={powerReadings}
+              customCableLengthM={customCableLengthM}
               onParamsChange={handleParamsChange}
             />
           </div>
@@ -394,7 +439,13 @@ export default function OpticalFiberExperiment() {
                 {POWER_READING_IDS.map((id) => (
                   <tr key={id} className="observation-row">
                     <td data-label="Reading">{id}</td>
-                    <td data-label="Setup">{POWER_READING_DESCRIPTIONS[id]}</td>
+                    <td data-label="Setup">
+                      {id === 'P06'
+                        ? `Custom-length fiber · ${recordedCustomLengthM === null
+                          ? `${customCableLengthM.toFixed(2)} m (not recorded)`
+                          : `${recordedCustomLengthM.toFixed(2)} m`} · straight`
+                        : POWER_READING_DESCRIPTIONS[id]}
+                    </td>
                     <td data-label="Meter value (PDF: dB)">
                       {powerReadings[id] === undefined ? '—' : `${powerReadings[id]!.toFixed(2)} dB`}
                     </td>
@@ -412,10 +463,14 @@ export default function OpticalFiberExperiment() {
         <div className="fiber-attenuation-panel">
           <Controls
             selectedPowerReading={selectedPowerReading}
+            customCableLengthM={customCableLengthM}
+            recordedCustomLengthM={recordedCustomLengthM}
+            customEstimateDb={customEstimateDb}
             powerValueDraft={powerValueDraft}
             recordedPowerReadings={powerReadings}
             powerValueError={powerValueError}
             onPowerReadingChange={handlePowerReadingChange}
+            onCustomCableLengthChange={handleCustomCableLengthChange}
             onPowerValueChange={handlePowerValueChange}
             onRecordPowerReading={handleRecordPowerReading}
           />

@@ -25,6 +25,7 @@ export const MATERIALS: Record<MaterialKey, Material> = {
 
 export interface Params {
   material: MaterialKey;
+  massesAttached: boolean;
   l: number; // suspension-wire length (m)
   r: number; // suspension-wire radius (m)
   M: number; // platform mass (kg)
@@ -36,6 +37,7 @@ export interface Params {
 
 export const DEFAULT_PARAMS: Params = {
   material: 'steel',
+  massesAttached: true,
   l: 0.5,
   r: 0.0005,
   M: 0.5,
@@ -72,6 +74,13 @@ export interface Reading {
   r: number; // m
 }
 
+export interface PlatformPeriodMeasurement {
+  oscillations: number;
+  totalTimeS: number;
+  periodS: number;
+  platformMomentOfInertia: number;
+}
+
 export interface ExperimentResult {
   meanRigidityModulusPa: number;
   meanReferenceRigidityPa: number;
@@ -85,6 +94,7 @@ export function isValidParams(params: Params): boolean {
   const values = [params.l, params.r, params.M, params.R, params.m, params.d, params.theta0];
   return (
     values.every(Number.isFinite) &&
+    typeof params.massesAttached === 'boolean' &&
     params.l > 0 &&
     params.r > 0 &&
     params.M > 0 &&
@@ -176,9 +186,12 @@ export function computeState(params: Params): State {
   const material = MATERIALS[params.material] ?? MATERIALS.steel;
   const isValid = isValidParams(params);
   const platformMomentOfInertia = isValid ? 0.5 * params.M * params.R ** 2 : 0;
-  const momentOfInertia = isValid
+  const withAttachedMasses = isValid
     ? computeMomentOfInertia(params.M, params.R, params.m, params.d)
     : 0;
+  const momentOfInertia = params.massesAttached
+    ? withAttachedMasses
+    : platformMomentOfInertia;
   const torsionalConstant = isValid
     ? computeTorsionalConstant(material.rigidityModulusPa, params.l, params.r)
     : 0;
@@ -210,6 +223,7 @@ export function createReading(
 ): Reading | null {
   if (
     !isValidParams(params) ||
+    !params.massesAttached ||
     !Number.isInteger(trial) ||
     trial < 1 ||
     !Number.isInteger(oscillations) ||
@@ -243,6 +257,41 @@ export function createReading(
     referenceRigidityPa: state.referenceRigidityPa,
     l: params.l,
     r: params.r,
+  };
+}
+
+export function createPlatformPeriodMeasurement(
+  params: Params,
+  oscillations: number,
+  totalTimeS: number,
+): PlatformPeriodMeasurement | null {
+  if (
+    !isValidParams(params) ||
+    params.massesAttached ||
+    !Number.isInteger(oscillations) ||
+    oscillations < 1 ||
+    oscillations > 1000 ||
+    !isValidMeasuredTime(totalTimeS)
+  ) {
+    return null;
+  }
+
+  const platformMomentOfInertia = 0.5 * params.M * params.R ** 2;
+  const periodS = totalTimeS / oscillations;
+  if (
+    !Number.isFinite(platformMomentOfInertia) ||
+    platformMomentOfInertia <= 0 ||
+    !Number.isFinite(periodS) ||
+    periodS <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    oscillations,
+    totalTimeS,
+    periodS,
+    platformMomentOfInertia,
   };
 }
 

@@ -4,6 +4,7 @@ import Controls, {
   type ManualReadingFields,
   type ManualReadingTarget,
   type ManualReadingsState,
+  type MeasurementMode,
 } from './controls';
 import ExperimentCanvas from './canvas';
 import {
@@ -17,6 +18,7 @@ import {
   findMinimumDeviation,
   formatAngleArcMinutes,
   formatVernierReading,
+  normalizeRadians,
   tracePrismRay,
   vernierReadingFromAngle,
 } from './simulation';
@@ -122,7 +124,7 @@ function DeviationGraph({
       <div className="prism-subsection-heading">
         <div>
           <h2>Deviation vs prism-table rotation</h2>
-          <p>Model ray trace with recorded trial deviations shown as markers.</p>
+          <p>Model ray trace; markers show trials with a recorded prism-table angle.</p>
         </div>
         <strong>D = {currentY.toFixed(2)}°</strong>
       </div>
@@ -277,10 +279,12 @@ function ObservationTable({ trials }: { trials: PrismTrial[] }) {
 
 export default function PrismSpectrometerExperiment() {
   const [params, setParams] = useState<Params>(DEFAULT_PARAMS);
+  const [mode, setMode] = useState<MeasurementMode>('experimental');
   const [draft, setDraft] = useState<MeasurementDraft>(EMPTY_DRAFT);
   const [manualReadings, setManualReadings] = useState<ManualReadingsState>(INITIAL_MANUAL_READINGS);
   const [trials, setTrials] = useState<PrismTrial[]>([]);
   const [error, setError] = useState('');
+  const [minimumCaptureError, setMinimumCaptureError] = useState('');
 
   const turningPoint = useMemo(
     () => findMinimumDeviation(GLASS_MODEL_REFRACTIVE_INDEX),
@@ -302,14 +306,28 @@ export default function PrismSpectrometerExperiment() {
   const directComplete = Boolean(draft.directA && draft.directB);
   const minimumComplete = Boolean(draft.minimumA && draft.minimumB);
   const canRecord = directComplete && minimumComplete;
-  const workflowStep = !directComplete
-    ? state.telescopeAligned ? 2 : 1
-    : !minimumComplete
-      ? 3
-      : 4;
+  const workflowStep = mode === 'manual'
+    ? !directComplete ? 1 : !minimumComplete ? 2 : 3
+    : !state.telescopeAligned && !params.prismInserted
+      ? 1
+      : !directComplete
+        ? 2
+        : !params.prismInserted
+          ? 3
+          : !state.atTurningPoint
+            ? 4
+            : !minimumComplete
+              ? 5
+              : 6;
 
   function handleParamChange(updated: Partial<Params>) {
-    setParams((previous) => ({ ...previous, ...updated }));
+    setParams((previous) => ({
+      ...previous,
+      ...updated,
+      ...(updated.telescopeRotationRad !== undefined
+        ? { telescopeRotationRad: normalizeRadians(updated.telescopeRotationRad) }
+        : {}),
+    }));
     if (updated.prismRotationRad !== undefined) {
       setDraft((previous) => ({ ...previous, minimumA: null, minimumB: null }));
     }
@@ -318,6 +336,7 @@ export default function PrismSpectrometerExperiment() {
         ? { ...previous, minimumA: null, minimumB: null }
         : { ...previous, directA: null, directB: null });
     }
+    setMinimumCaptureError('');
     setError('');
   }
 
@@ -330,6 +349,7 @@ export default function PrismSpectrometerExperiment() {
     if (params.prismInserted) {
       setDraft((previous) => ({ ...previous, minimumA: null, minimumB: null }));
     }
+    setMinimumCaptureError('');
     setError('');
   }
 
@@ -354,14 +374,22 @@ export default function PrismSpectrometerExperiment() {
   }
 
   function handleCaptureMinimum() {
-    if (!params.prismInserted || !state.atTurningPoint || !state.telescopeAligned) {
-      setError('Rotate to the minimum-deviation turning point and align the crosswire to the slit image.');
+    if (!params.prismInserted) {
+      setMinimumCaptureError('Insert the prism before capturing minimum-deviation readings.');
+      return;
+    }
+    if (!state.atTurningPoint) {
+      setMinimumCaptureError('Rotate the prism table to the minimum-deviation turning point before capturing readings.');
+      return;
+    }
+    if (!state.telescopeAligned) {
+      setMinimumCaptureError('Align the telescope crosswire with the refracted image before capturing readings.');
       return;
     }
     const minimumA = vernierReadingFromAngle(params.telescopeRotationRad);
     const minimumB = vernierReadingFromAngle(params.telescopeRotationRad + Math.PI);
     if (!minimumA || !minimumB) {
-      setError('The telescope angle could not be converted to a vernier reading.');
+      setMinimumCaptureError('The telescope angle could not be converted to a vernier reading.');
       return;
     }
     setDraft((previous) => ({ ...previous, minimumA, minimumB }));
@@ -370,7 +398,7 @@ export default function PrismSpectrometerExperiment() {
       minimumA: manualFieldsFromReading(minimumA),
       minimumB: manualFieldsFromReading(minimumB),
     }));
-    setError('');
+    setMinimumCaptureError('');
   }
 
   function handleAlignTelescope() {
@@ -378,7 +406,7 @@ export default function PrismSpectrometerExperiment() {
       setError('Insert the prism before aligning the telescope to the refracted image.');
       return;
     }
-    handleParamChange({ telescopeRotationRad: state.outgoingAngleRad });
+    handleParamChange({ telescopeRotationRad: normalizeRadians(state.outgoingAngleRad) });
   }
 
   function handleManualReadingChange(
@@ -419,7 +447,11 @@ export default function PrismSpectrometerExperiment() {
       minimumA: draft.minimumA,
       minimumB: draft.minimumB,
     };
-    const trial = createTrial(trials.length + 1, readings, params.prismRotationRad);
+    const trial = createTrial(
+      trials.length + 1,
+      readings,
+      mode === 'experimental' ? params.prismRotationRad : null,
+    );
     if (!trial) {
       setError('The readings do not form a valid deviation between 0° and 120°. Check the MSR and VSC values.');
       return;
@@ -431,9 +463,11 @@ export default function PrismSpectrometerExperiment() {
 
   function handleReset() {
     setParams(DEFAULT_PARAMS);
+    setMode('experimental');
     setDraft(EMPTY_DRAFT);
     setManualReadings(INITIAL_MANUAL_READINGS);
     setTrials([]);
+    setMinimumCaptureError('');
     setError('');
   }
 
@@ -442,11 +476,22 @@ export default function PrismSpectrometerExperiment() {
       <div className="prism-main-column">
         <section className="prism-apparatus-column" aria-label="Spectrometer simulation">
           <div className="experiment-canvas-area prism-canvas-area">
-            <ExperimentCanvas params={params} state={state} />
+            <ExperimentCanvas
+              params={params}
+              state={state}
+              onTelescopeRotationChange={(telescopeRotationRad) => handleParamChange({ telescopeRotationRad })}
+              onPrismRotationChange={(prismRotationRad) => handleParamChange({ prismRotationRad })}
+            />
           </div>
 
           <div className="prism-live-row">
-            <GuidedProcedure workflowStep={workflowStep} />
+            <GuidedProcedure
+              mode={mode}
+              workflowStep={workflowStep}
+              prismInserted={params.prismInserted}
+              rayValid={state.ray.valid}
+              onAlignTelescope={handleAlignTelescope}
+            />
             <section className="prism-live-panel measurements-panel" aria-label="Live prism calculations" aria-live="polite">
               <div className="prism-subsection-heading">
                 <div>
@@ -512,6 +557,7 @@ export default function PrismSpectrometerExperiment() {
 
       <aside className="experiment-sidebar prism-sidebar">
         <Controls
+          mode={mode}
           params={params}
           state={state}
           directA={draft.directA}
@@ -522,9 +568,10 @@ export default function PrismSpectrometerExperiment() {
           trialNumber={trials.length + 1}
           canRecord={canRecord}
           error={error}
+          minimumCaptureError={minimumCaptureError}
           onParamChange={handleParamChange}
+          onModeChange={setMode}
           onTogglePrism={handleTogglePrism}
-          onAlignTelescope={handleAlignTelescope}
           onCaptureDirect={handleCaptureDirect}
           onCaptureMinimum={handleCaptureMinimum}
           onManualReadingChange={handleManualReadingChange}

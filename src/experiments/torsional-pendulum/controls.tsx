@@ -1,6 +1,6 @@
 import SliderInput from '../../components/ui/SliderInput';
 import { MATERIALS, MAX_MEASURED_TIME_S, MIN_MEASURED_TIME_S } from './simulation';
-import type { MaterialKey, Params } from './simulation';
+import type { MaterialKey, Params, PlatformPeriodMeasurement } from './simulation';
 
 export type MeasurementMode = 'stopwatch' | 'manual';
 
@@ -9,7 +9,12 @@ interface ControlsProps {
   isTiming: boolean;
   hasReadings: boolean;
   isRecording: boolean;
+  wireDiameterReadingsMm: number[];
+  wireDiameterInput: string;
   onChange: (updated: Partial<Params>) => void;
+  onToggleMasses: () => void;
+  onWireDiameterInputChange: (value: string) => void;
+  onAddWireDiameter: () => void;
   onResetExperiment: () => void;
 }
 
@@ -18,6 +23,8 @@ interface TimingControlsProps {
   elapsedTimeS: number;
   manualTotalTimeS: string;
   measurementMode: MeasurementMode;
+  massesAttached: boolean;
+  t0Measurement: PlatformPeriodMeasurement | null;
   isTiming: boolean;
   canRecordStopwatch: boolean;
   canRecordManual: boolean;
@@ -37,7 +44,12 @@ export default function Controls({
   isTiming,
   hasReadings,
   isRecording,
+  wireDiameterReadingsMm,
+  wireDiameterInput,
   onChange,
+  onToggleMasses,
+  onWireDiameterInputChange,
+  onAddWireDiameter,
   onResetExperiment,
 }: ControlsProps) {
   const fixedParametersDisabled = isTiming || hasReadings;
@@ -46,6 +58,22 @@ export default function Controls({
   return (
     <div className="controls-panel torsional-controls-panel">
       <p className="section-label">Experimental Parameters</p>
+
+      <section className="torsional-mass-configuration" aria-label="Attached mass configuration">
+        <div>
+          <strong>Platform masses</strong>
+          <span>{params.massesAttached ? 'Two attached masses' : 'No attached masses · T₀ setup'}</span>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          aria-pressed={!params.massesAttached}
+          disabled={isTiming || isRecording}
+          onClick={onToggleMasses}
+        >
+          {params.massesAttached ? 'Remove both masses' : 'Restore both masses'}
+        </button>
+      </section>
 
       <div className="slider-input">
         <div className="slider-header">
@@ -91,9 +119,70 @@ export default function Controls({
         unit=" mm"
         precision={2}
         showNumericInput
-        disabled={fixedParametersDisabled}
+        disabled={fixedParametersDisabled || wireDiameterReadingsMm.length > 0}
         onChange={(diameterMm) => onChange({ r: diameterMm / 2000 })}
       />
+
+      <section className="torsional-wire-measurements" aria-labelledby="torsional-wire-measurements-title">
+        <div>
+          <h3 id="torsional-wire-measurements-title">Wire diameter measurements</h3>
+          <p>Measure wire diameter D in mm. The mean radius r = D̄/2 is used in subsequent calculations.</p>
+        </div>
+        <label htmlFor="torsional-wire-diameter-input">Diameter measurement (mm)</label>
+        <div className="torsional-wire-diameter-entry">
+          <input
+            id="torsional-wire-diameter-input"
+            type="number"
+            min="0.5"
+            max="2"
+            step="any"
+            value={wireDiameterInput}
+            disabled={hasReadings || isTiming || isRecording}
+            aria-label="Wire diameter measurement in millimetres"
+            onChange={(event) => onWireDiameterInputChange(event.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={hasReadings || isTiming || isRecording}
+            onClick={onAddWireDiameter}
+          >
+            Add diameter
+          </button>
+        </div>
+        {wireDiameterReadingsMm.length > 0 ? (
+          <>
+            <table className="obs-table torsional-wire-table" aria-label="Wire diameter and radius measurements">
+              <thead>
+                <tr><th>Measurement</th><th>Diameter D (mm)</th><th>Radius r (mm)</th></tr>
+              </thead>
+              <tbody>
+                {wireDiameterReadingsMm.map((diameter, index) => (
+                  <tr key={`${diameter}-${index}`}>
+                    <td data-label="Measurement">{index + 1}</td>
+                    <td data-label="Diameter D (mm)">{diameter.toFixed(3)}</td>
+                    <td data-label="Radius r (mm)">{(diameter / 2).toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="torsional-wire-mean" role="status">
+              Mean measured diameter D = {(
+                wireDiameterReadingsMm.reduce((sum, diameter) => sum + diameter, 0) /
+                wireDiameterReadingsMm.length
+              ).toFixed(3)} mm · Radius used, r = {(
+                wireDiameterReadingsMm.reduce((sum, diameter) => sum + diameter, 0) /
+                wireDiameterReadingsMm.length / 2
+              ).toFixed(4)} mm
+            </p>
+          </>
+        ) : (
+          <p className="torsional-hint">No diameter measurements yet. The configured wire radius is used until measurements are added.</p>
+        )}
+        {hasReadings && (
+          <p className="torsional-hint">Wire measurements are locked after a trial so all trials use the same measured wire radius.</p>
+        )}
+      </section>
 
       <SliderInput
         label="Platform mass (M)"
@@ -130,7 +219,7 @@ export default function Controls({
         unit=" kg"
         precision={2}
         showNumericInput
-        disabled={fixedParametersDisabled}
+        disabled={fixedParametersDisabled || !params.massesAttached}
         onChange={(value) => onChange({ m: value })}
       />
 
@@ -143,7 +232,7 @@ export default function Controls({
         unit=" cm"
         precision={1}
         showNumericInput
-        disabled={isTiming}
+        disabled={isTiming || !params.massesAttached}
         onChange={(distanceCm) => onChange({ d: distanceCm / 100 })}
       />
 
@@ -162,8 +251,9 @@ export default function Controls({
 
       {hasReadings && (
         <p className="torsional-hint">
-          The setup is fixed after the first trial. Move the masses to a new <strong>d</strong> for
-          each trial so the T² vs I graph compares the same wire and platform.
+          Wire and platform parameters are fixed after the first trial. You can still remove or
+          restore both masses for T₀. Move attached masses to a new <strong>d</strong> for each
+          trial so the T² vs I graph compares the same wire and platform.
         </p>
       )}
 
@@ -184,6 +274,8 @@ export function TimingControls({
   elapsedTimeS,
   manualTotalTimeS,
   measurementMode,
+  massesAttached,
+  t0Measurement,
   isTiming,
   canRecordStopwatch,
   canRecordManual,
@@ -199,6 +291,14 @@ export function TimingControls({
 }: TimingControlsProps) {
   return (
     <div className="torsional-timing-panel">
+      <div className={`torsional-timing-configuration${massesAttached ? '' : ' is-t0'}`} role="status">
+        <strong>{massesAttached ? 'Two-mass measurement' : 'T₀ measurement · platform only'}</strong>
+        <span>
+          {massesAttached
+            ? 'The moment of inertia includes the platform and both attached masses.'
+            : 'Both attached masses are removed; the platform inertia alone is used.'}
+        </span>
+      </div>
       <label className="slider-label" htmlFor="torsion-count">
         Complete oscillations to time (N)
       </label>
@@ -241,7 +341,7 @@ export function TimingControls({
         <>
           <p className="torsional-hint">
             Start timing at release, count N complete cycles, then stop at the same point in the
-            motion. The period is calculated from your measured time.
+            motion. {massesAttached ? 'The period is calculated from your measured time.' : 'Record the platform-only period T₀.'}
           </p>
           <div className="torsional-stopwatch" role="timer" aria-live="off">
             {elapsedTimeS.toFixed(2)} <span>s</span>
@@ -271,7 +371,7 @@ export function TimingControls({
             onClick={() => onRecord(elapsedTimeS)}
             disabled={!canRecordStopwatch || isRecording}
           >
-            Record stopwatch trial
+            {massesAttached ? 'Record stopwatch trial' : 'Record T₀ (stopwatch)'}
           </button>
         </>
       ) : (
@@ -311,9 +411,21 @@ export function TimingControls({
             onClick={() => onRecord(Number(manualTotalTimeS))}
             disabled={!canRecordManual || isRecording}
           >
-            Record manual trial
+            {massesAttached ? 'Record manual trial' : 'Record T₀ (manual time)'}
           </button>
         </div>
+      )}
+      {t0Measurement && (
+        <section className="torsional-t0-record" aria-label="Recorded platform-only period T zero">
+          <strong>Last recorded T₀ · platform only</strong>
+          <span>
+            {t0Measurement.totalTimeS.toFixed(3)} s / {t0Measurement.oscillations} =
+            {' '}{t0Measurement.periodS.toFixed(4)} s
+          </span>
+          <small>
+            Platform moment of inertia: {t0Measurement.platformMomentOfInertia.toExponential(3)} kg·m²
+          </small>
+        </section>
       )}
       {error && <p className="torsional-error" role="alert">{error}</p>}
     </div>

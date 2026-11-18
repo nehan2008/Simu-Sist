@@ -12,7 +12,9 @@ interface CanvasProps {
   params: NumericalApertureParams;
   selectedPowerReading: PowerReadingId;
   powerMeterValue: number | null;
+  powerMeterValueSource: 'manual' | 'length-model' | null;
   recordedPowerReadings: Partial<Record<PowerReadingId, number>>;
+  customCableLengthM: number;
   onParamsChange: (updated: Partial<NumericalApertureParams>) => void;
 }
 
@@ -21,10 +23,11 @@ const HEIGHT = 620;
 const FIBER_END = { x: 350, y: 290 };
 const DISTANCE_LINE_Y = 470;
 
-function powerReadingFiberLength(id: PowerReadingId): '1 m' | '5 m' | 'combined' {
+function powerReadingFiberLength(id: PowerReadingId, customCableLengthM: number): string {
   if (id === 'P01' || id === 'P02') return '1 m';
   if (id === 'P03' || id === 'P04') return '5 m';
-  return 'combined';
+  if (id === 'P05') return 'combined';
+  return `${customCableLengthM.toFixed(2)} m`;
 }
 
 function isWound(id: PowerReadingId) {
@@ -48,7 +51,13 @@ function FiberSource() {
   );
 }
 
-function PowerMeter({ value }: { value: number | null }) {
+function PowerMeter({
+  value,
+  valueSource,
+}: {
+  value: number | null;
+  valueSource: 'manual' | 'length-model' | null;
+}) {
   return (
     <g>
       <rect x="741" y="220" width="200" height="148" rx="14" fill="url(#fiber-meter-case)" stroke="#65758d" strokeWidth="2" />
@@ -62,7 +71,13 @@ function PowerMeter({ value }: { value: number | null }) {
       <text x="755" y="337" fill="#aab5c5" fontSize="10">INPUT</text>
       <circle cx="888" cy="333" r="5" fill="#7f8da3" />
       <text x="900" y="337" fill="#aab5c5" fontSize="10">RANGE</text>
-      <text x="841" y="390" fill="#78879d" fontSize="9" textAnchor="middle">manual reading · no simulated measurement</text>
+      <text x="841" y="390" fill="#78879d" fontSize="9" textAnchor="middle">
+        {valueSource === 'length-model'
+          ? 'linear length estimate · calibrated from P01/P03'
+          : valueSource === 'manual'
+            ? 'manual or recorded power-meter value'
+            : 'awaiting meter reading or calibration'}
+      </text>
     </g>
   );
 }
@@ -72,11 +87,13 @@ export default function ExperimentCanvas({
   params,
   selectedPowerReading,
   powerMeterValue,
+  powerMeterValueSource,
   recordedPowerReadings,
+  customCableLengthM,
   onParamsChange,
 }: CanvasProps) {
   const isNaMode = mode === 'numerical-aperture';
-  const selectedLength = powerReadingFiberLength(selectedPowerReading);
+  const selectedLength = powerReadingFiberLength(selectedPowerReading, customCableLengthM);
   const wound = !isNaMode && isWound(selectedPowerReading);
   const combined = !isNaMode && selectedLength === 'combined';
   const screenDistanceMm = params.screenDistanceM * 1000;
@@ -85,6 +102,7 @@ export default function ExperimentCanvas({
   const screenX = FIBER_END.x + screenDistanceMm * pxPerMm;
   const screenHalfHeight = 126;
   const wSliderX = screenX + 12.5 * pxPerMm + 48;
+  const lSliderWidthPercent = Math.max((screenX - FIBER_END.x) / WIDTH * 100, 10);
   const displayedPower = powerMeterValue ??
     (recordedPowerReadings[selectedPowerReading] ?? null);
 
@@ -267,12 +285,12 @@ export default function ExperimentCanvas({
             </>
           )}
 
-          <PowerMeter value={displayedPower} />
+          <PowerMeter value={displayedPower} valueSource={powerMeterValueSource} />
           <text x="70" y="438" fill="#7f8ea5" fontSize="10">
             {wound ? 'Four-turn mandrel configuration follows the selected P02/P04 reading.' : 'Fiber routing follows the selected meter reading.'}
           </text>
           <text x="70" y="457" fill="#7f8ea5" fontSize="10">
-            Meter shows entered or recorded readings only; no simulated values.
+            P01–P05 are entered readings; P06 is estimated until its meter value is recorded.
           </text>
           <rect x="70" y="487" width="860" height="66" rx="8" fill="#171f2d" stroke="#354256" />
           <text x="88" y="511" fill="#9eabc0" fontSize="10" letterSpacing="1">RECORDED POWER READINGS</text>
@@ -297,13 +315,13 @@ export default function ExperimentCanvas({
             style={{
               left: `${FIBER_END.x / WIDTH * 100}%`,
               top: `${DISTANCE_LINE_Y / HEIGHT * 100}%`,
-              width: `${(screenX - FIBER_END.x) / WIDTH * 100}%`,
+              width: `${lSliderWidthPercent}%`,
             }}
           >
             <input
               id="fiber-apparatus-l-slider"
               type="range"
-              min="2"
+              min="0.1"
               max="50"
               step="any"
               value={Number((params.screenDistanceM * 100).toFixed(6))}
@@ -314,7 +332,7 @@ export default function ExperimentCanvas({
               }
             />
             <div className="fiber-apparatus-range-labels">
-              <span className="fiber-apparatus-l-min">2 cm</span>
+              <span className="fiber-apparatus-l-min">0.1 cm</span>
               <span className="fiber-apparatus-l-max">50 cm</span>
               <strong className="fiber-apparatus-l-value">L = {(params.screenDistanceM * 100).toFixed(2)} cm</strong>
             </div>

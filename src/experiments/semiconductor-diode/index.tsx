@@ -155,7 +155,9 @@ function EnergyGapGraph({ readings }: { readings: Reading[] }) {
         </text>
       </svg>
       <p className="diode-graph-note">
-        Only recorded observations are plotted. {hasFit ? 'The line is the least-squares fit to those readings.' : 'Record a second reading at a different temperature to calculate the slope.'}
+        Only recorded observations are plotted. {hasFit && result.slopePerScaledInverseKelvin !== null
+          ? `The line is the least-squares fit; slope = ${result.slopePerScaledInverseKelvin.toFixed(4)} K.`
+          : 'Record a second reading at a different temperature to calculate the slope.'}
       </p>
     </section>
   );
@@ -215,9 +217,11 @@ export default function SemiconductorDiodeExperiment() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [error, setError] = useState('');
   const [safetyNotice, setSafetyNotice] = useState('');
+  const [isPaused, setIsPaused] = useState(false);
   const paramsRef = useRef(params);
+  const pausedRef = useRef(false);
   const energyGap = useMemo(() => computeEnergyGap(readings), [readings]);
-  const canAdjustVoltage = readings.length === 0 && !params.heaterOn;
+  const canAdjustVoltage = readings.length === 0 && !params.heaterOn && !isPaused;
 
   useEffect(() => {
     paramsRef.current = params;
@@ -229,6 +233,7 @@ export default function SemiconductorDiodeExperiment() {
       const time = performance.now();
       const deltaSeconds = (time - previousTime) / 1000;
       previousTime = time;
+      if (pausedRef.current) return;
       setState((previous) => {
         const next = tick(paramsRef.current, previous, deltaSeconds);
         return isSameState(previous, next) ? previous : next;
@@ -248,7 +253,26 @@ export default function SemiconductorDiodeExperiment() {
     return () => window.clearTimeout(timeoutId);
   }, [state.heaterSafetyCutoff]);
 
+  function handleTogglePause() {
+    const nextPaused = !pausedRef.current;
+    pausedRef.current = nextPaused;
+    setIsPaused(nextPaused);
+    setError('');
+  }
+
+  function handleHeatingSpeedChange(heatingSpeedMultiplier: number) {
+    setParams((previous) => ({ ...previous, heatingSpeedMultiplier }));
+  }
+
+  function handleCoolingSpeedChange(coolingSpeedMultiplier: number) {
+    setParams((previous) => ({ ...previous, coolingSpeedMultiplier }));
+  }
+
   function handleVoltageChange(reverseVoltageV: number) {
+    if (isPaused) {
+      setError('Resume the simulation before changing apparatus settings.');
+      return;
+    }
     if (!Number.isFinite(reverseVoltageV) || reverseVoltageV < 0 || reverseVoltageV > VOLTMETER_MAX_V) {
       setError(`Set the reverse-bias voltage between 0 and ${VOLTMETER_MAX_V} V.`);
       return;
@@ -262,6 +286,10 @@ export default function SemiconductorDiodeExperiment() {
   }
 
   function handleTogglePower() {
+    if (isPaused) {
+      setError('Resume the simulation before changing apparatus settings.');
+      return;
+    }
     if (params.heaterOn) {
       setError('Switch the heating mantle off before energizing the reverse-bias circuit.');
       return;
@@ -271,6 +299,10 @@ export default function SemiconductorDiodeExperiment() {
   }
 
   function handleToggleHeater() {
+    if (isPaused) {
+      setError('Resume the simulation before changing apparatus settings.');
+      return;
+    }
     if (params.heaterOn) {
       setParams((previous) => ({ ...previous, heaterOn: false }));
       setSafetyNotice('');
@@ -291,6 +323,10 @@ export default function SemiconductorDiodeExperiment() {
   }
 
   function handleToggleStirring() {
+    if (isPaused) {
+      setError('Resume the simulation before changing apparatus settings.');
+      return;
+    }
     if (!params.heaterOn && state.temperatureC <= ROOM_TEMPERATURE_C + 0.2) {
       setError('Stir the bath while heating or while it is cooling.');
       return;
@@ -300,6 +336,10 @@ export default function SemiconductorDiodeExperiment() {
   }
 
   function handleRecordReading() {
+    if (isPaused) {
+      setError('Resume the simulation before recording a reading.');
+      return;
+    }
     const reading = createReading(readings.length + 1, params, state);
     if (!reading) {
       setError(
@@ -321,6 +361,8 @@ export default function SemiconductorDiodeExperiment() {
   }
 
   function handleReset() {
+    pausedRef.current = false;
+    setIsPaused(false);
     setParams(DEFAULT_PARAMS);
     setState(initialState());
     setReadings([]);
@@ -338,7 +380,9 @@ export default function SemiconductorDiodeExperiment() {
               <h2>Energy-gap measurement setup</h2>
             </div>
             <span className={`diode-phase-badge is-${state.thermalPhase}`}>
-              {state.thermalPhase === 'heating'
+              {isPaused
+                ? `Paused · ${state.thermalPhase === 'heating' ? 'heating' : state.thermalPhase === 'cooling' ? 'cooling' : 'ambient'}`
+                : state.thermalPhase === 'heating'
                 ? 'Heating'
                 : state.thermalPhase === 'cooling'
                   ? 'Cooling'
@@ -346,7 +390,7 @@ export default function SemiconductorDiodeExperiment() {
             </span>
           </div>
           <div className="experiment-canvas-area diode-canvas-area">
-            <ExperimentCanvas params={params} state={state} />
+            <ExperimentCanvas params={params} state={state} isPaused={isPaused} />
           </div>
           <div className="diode-apparatus-readouts" aria-live="polite">
             <div>
@@ -386,8 +430,8 @@ export default function SemiconductorDiodeExperiment() {
               <strong>{energyGap.readingCount}</strong>
             </div>
             <div>
-              <span>Slope of log₁₀(I₀) vs 1000/T</span>
-              <strong>{energyGap.slopePerScaledInverseKelvin === null ? '—' : energyGap.slopePerScaledInverseKelvin.toFixed(4)}</strong>
+              <span>Slope of log₁₀(I₀/µA) vs 1000/T (K)</span>
+              <strong>{energyGap.slopePerScaledInverseKelvin === null ? '—' : `${energyGap.slopePerScaledInverseKelvin.toFixed(4)} K`}</strong>
             </div>
             <div>
               <span>Experimental energy gap, E<sub>g</sub></span>
@@ -399,7 +443,7 @@ export default function SemiconductorDiodeExperiment() {
             </div>
           </div>
           <p className="diode-formula-note">
-            T is in kelvin and I<sub>0</sub> is the measured reverse current. The PDF gives E<sub>g</sub> = 3.973 × 10⁻⁴ × |slope| for log₁₀(I<sub>0</sub>) vs 1/T; with this graph's 1000/T axis the equivalent factor is 0.3973 eV per plotted slope. The simulated diode uses an explicitly stated silicon reference model ({MODEL_BAND_GAP_EV.toFixed(2)} eV at {MODEL_REFERENCE_TEMPERATURE_K.toFixed(2)} K); the result above is calculated only from recorded readings.
+            T is in kelvin and I<sub>0</sub> is the measured reverse current.             The PDF gives E<sub>g</sub> = 3.973 × 10⁻⁴ eV/K × |slope| for log₁₀(I<sub>0</sub>) vs 1/T; with this graph's 1000/T axis the equivalent factor is 0.3973 eV/K. The simulated diode uses an explicitly stated silicon reference model ({MODEL_BAND_GAP_EV.toFixed(2)} eV at {MODEL_REFERENCE_TEMPERATURE_K.toFixed(2)} K); the result above is calculated only from recorded readings.
           </p>
         </section>
 
@@ -418,9 +462,13 @@ export default function SemiconductorDiodeExperiment() {
         <Controls
           params={params}
           state={state}
+          isPaused={isPaused}
           readingCount={readings.length}
           error={error}
           safetyNotice={safetyNotice}
+          onTogglePause={handleTogglePause}
+          onHeatingSpeedChange={handleHeatingSpeedChange}
+          onCoolingSpeedChange={handleCoolingSpeedChange}
           onVoltageChange={handleVoltageChange}
           onToggleHeater={handleToggleHeater}
           onTogglePower={handleTogglePower}

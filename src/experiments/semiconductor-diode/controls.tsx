@@ -1,6 +1,8 @@
 import SliderInput from '../../components/ui/SliderInput';
 import {
+  MAX_THERMAL_SPEED_MULTIPLIER,
   MAX_SAFE_TEMPERATURE_C,
+  MIN_THERMAL_SPEED_MULTIPLIER,
   ROOM_TEMPERATURE_C,
   VOLTMETER_MAX_V,
 } from './simulation';
@@ -9,9 +11,13 @@ import type { Params, State } from './simulation';
 interface ControlsProps {
   params: Params;
   state: State;
+  isPaused: boolean;
   readingCount: number;
   error: string;
   safetyNotice: string;
+  onTogglePause: () => void;
+  onHeatingSpeedChange: (speed: number) => void;
+  onCoolingSpeedChange: (speed: number) => void;
   onVoltageChange: (voltageV: number) => void;
   onToggleHeater: () => void;
   onTogglePower: () => void;
@@ -65,9 +71,13 @@ function getStage(params: Params, state: State, readingCount: number): {
 export default function Controls({
   params,
   state,
+  isPaused,
   readingCount,
   error,
   safetyNotice,
+  onTogglePause,
+  onHeatingSpeedChange,
+  onCoolingSpeedChange,
   onVoltageChange,
   onToggleHeater,
   onTogglePower,
@@ -77,6 +87,7 @@ export default function Controls({
 }: ControlsProps) {
   const stage = getStage(params, state, readingCount);
   const canRecord =
+    !isPaused &&
     params.powerOn &&
     !params.heaterOn &&
     params.reverseVoltageV >= 0.5 &&
@@ -129,6 +140,22 @@ export default function Controls({
         </div>
         <div className="diode-switch-row">
           <div>
+            <strong>Simulation</strong>
+            <span>{isPaused ? 'Paused · temperature and readings held' : 'Running · pause to hold the current state'}</span>
+          </div>
+          <button
+            type="button"
+            className={`diode-toggle${isPaused ? ' is-on' : ''}`}
+            aria-label={`${isPaused ? 'Resume' : 'Pause'} simulation`}
+            aria-pressed={isPaused}
+            onClick={onTogglePause}
+          >
+            <span />
+            <strong>{isPaused ? 'RESUME' : 'PAUSE'}</strong>
+          </button>
+        </div>
+        <div className="diode-switch-row">
+          <div>
             <strong>15 V DC supply</strong>
             <span>Reverse-bias circuit</span>
           </div>
@@ -137,7 +164,7 @@ export default function Controls({
             className={`diode-toggle${params.powerOn ? ' is-on' : ''}`}
             aria-label={`Power supply ${params.powerOn ? 'on' : 'off'}`}
             aria-pressed={params.powerOn}
-            disabled={params.heaterOn}
+            disabled={params.heaterOn || isPaused}
             onClick={onTogglePower}
           >
             <span />
@@ -154,13 +181,35 @@ export default function Controls({
             className={`diode-toggle${params.heaterOn ? ' is-on' : ''}`}
             aria-label={`Heating mantle ${params.heaterOn ? 'on' : 'off'}`}
             aria-pressed={params.heaterOn}
-            disabled={!params.heaterOn && (state.temperatureC >= MAX_SAFE_TEMPERATURE_C || readingCount === 0)}
+            disabled={isPaused || (!params.heaterOn && (state.temperatureC >= MAX_SAFE_TEMPERATURE_C || readingCount === 0))}
             onClick={onToggleHeater}
           >
             <span />
             <strong>{params.heaterOn ? 'ON' : 'OFF'}</strong>
           </button>
         </div>
+        <SliderInput
+          label="Heating speed"
+          value={params.heatingSpeedMultiplier}
+          min={MIN_THERMAL_SPEED_MULTIPLIER}
+          max={MAX_THERMAL_SPEED_MULTIPLIER}
+          step={0.25}
+          unit="×"
+          precision={2}
+          showNumericInput
+          onChange={onHeatingSpeedChange}
+        />
+        <SliderInput
+          label="Cooling speed"
+          value={params.coolingSpeedMultiplier}
+          min={MIN_THERMAL_SPEED_MULTIPLIER}
+          max={MAX_THERMAL_SPEED_MULTIPLIER}
+          step={0.25}
+          unit="×"
+          precision={2}
+          showNumericInput
+          onChange={onCoolingSpeedChange}
+        />
         <SliderInput
           label="Reverse-bias voltage"
           value={params.reverseVoltageV}
@@ -170,7 +219,7 @@ export default function Controls({
           unit=" V"
           precision={1}
           showNumericInput
-          disabled={params.heaterOn || readingCount > 0}
+          disabled={params.heaterOn || readingCount > 0 || isPaused}
           onChange={onVoltageChange}
         />
         <div className="diode-switch-row diode-stir-row">
@@ -183,7 +232,7 @@ export default function Controls({
             className={`diode-toggle${params.stirringOn ? ' is-on' : ''}`}
             aria-label={`Oil stirring ${params.stirringOn ? 'on' : 'off'}`}
             aria-pressed={params.stirringOn}
-            disabled={!params.heaterOn && state.temperatureC <= ROOM_TEMPERATURE_C + 0.2}
+            disabled={isPaused || (!params.heaterOn && state.temperatureC <= ROOM_TEMPERATURE_C + 0.2)}
             onClick={onToggleStirring}
           >
             <span />

@@ -9,6 +9,7 @@ import type { Params, State } from './simulation';
 interface CanvasProps {
   params: Params;
   state: State;
+  isPaused: boolean;
 }
 
 interface MeterProps {
@@ -132,7 +133,7 @@ function AnalogMeter({
   );
 }
 
-function WideCanvas({ params, state }: CanvasProps) {
+function WideCanvas({ params, state, isPaused }: CanvasProps) {
   const width = 1120;
   const height = 690;
   const bathX = 695;
@@ -317,6 +318,7 @@ function WideCanvas({ params, state }: CanvasProps) {
           style={{
             opacity: thermalIntensity * 0.62,
             animationDuration: `${convectionDuration}s`,
+            animationPlayState: isPaused ? 'paused' : 'running',
           }}
         >
           <path d="M 735 485 C 700 451 700 393 738 377 C 778 360 795 393 776 420 C 755 448 766 482 801 492 C 836 502 867 483 862 451 C 858 424 830 408 837 382 C 847 350 893 354 908 382 C 927 419 900 458 920 487" />
@@ -360,7 +362,11 @@ function WideCanvas({ params, state }: CanvasProps) {
           <text x={thermometerX + 25} y={thermometerBottom + 28} className="diode-svg-small">bulb</text>
         </g>
 
-        <g className={`diode-stirring-rod${params.stirringOn ? ' is-stirring' : ''}`} aria-label="Oil stirring rod">
+        <g
+          className={`diode-stirring-rod${params.stirringOn ? ' is-stirring' : ''}`}
+          style={{ animationPlayState: isPaused ? 'paused' : 'running' }}
+          aria-label="Oil stirring rod"
+        >
           <line x1="718" y1="270" x2="740" y2="438" stroke="#e2edf0" strokeOpacity="0.8" strokeWidth="4" />
           <line x1="714" y1="270" x2="722" y2="269" stroke="#ffffff" strokeWidth="2" />
           <rect x="727" y="427" width="25" height="7" rx="3" transform="rotate(-8 739 430)" fill="#d7e3e8" fillOpacity="0.7" />
@@ -419,7 +425,7 @@ function WideCanvas({ params, state }: CanvasProps) {
   );
 }
 
-function CompactCanvas({ params, state }: CanvasProps) {
+function CompactCanvas({ params, state, isPaused }: CanvasProps) {
   const temperatureFraction = Math.max(0, Math.min(1, state.temperatureC / 100));
   const thermometerBottom = 444;
   const thermometerTop = 329;
@@ -524,12 +530,17 @@ function CompactCanvas({ params, state }: CanvasProps) {
           style={{
             opacity: thermalIntensity * 0.62,
             animationDuration: `${convectionDuration}s`,
+            animationPlayState: isPaused ? 'paused' : 'running',
           }}
         >
           <path d="M 96 493 C 82 455 103 415 131 419 C 160 423 146 455 165 473 C 186 492 215 483 214 456 C 214 427 188 416 200 393 C 217 362 250 379 254 405 C 259 435 232 451 250 480 C 264 500 282 497 297 466" />
           <path d="M 104 489 C 114 455 140 444 158 459 C 177 475 194 476 208 461 C 226 442 243 434 263 447 C 279 458 286 482 294 490" />
         </g>
-        <g className={`diode-stirring-rod${params.stirringOn ? ' is-stirring' : ''}`} aria-label="Oil stirring rod">
+        <g
+          className={`diode-stirring-rod${params.stirringOn ? ' is-stirring' : ''}`}
+          style={{ animationPlayState: isPaused ? 'paused' : 'running' }}
+          aria-label="Oil stirring rod"
+        >
           <line x1="89" y1="290" x2="111" y2="443" stroke="#e2edf0" strokeOpacity="0.8" strokeWidth="3" />
           <rect x="100" y="435" width="21" height="5" rx="2" transform="rotate(-8 110 438)" fill="#d7e3e8" fillOpacity="0.7" />
         </g>

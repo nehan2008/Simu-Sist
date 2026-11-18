@@ -7,6 +7,7 @@ import {
   computeState,
   createReading,
   getMaximumOrder,
+  meanWavelengthM,
 } from './simulation';
 import type { Params, Reading } from './simulation';
 
@@ -17,10 +18,10 @@ interface PendingMeasurement {
 
 function WavelengthGraph({
   readings,
-  wavelengthNm,
+  wavelengthM,
 }: {
   readings: Reading[];
-  wavelengthNm: number;
+  wavelengthM: number;
 }) {
   const width = 560;
   const height = 280;
@@ -31,9 +32,9 @@ function WavelengthGraph({
   if (readings.length === 0) {
     return (
       <div className="graph-section">
-        <h3>sin θ vs n/d</h3>
+        <h3>sin θ vs nN</h3>
         <p className="graph-note" role="status">
-          Record left and right angle measurements to plot the diffraction observations.
+          Record spot distances to plot the diffraction observations.
         </p>
       </div>
     );
@@ -41,25 +42,25 @@ function WavelengthGraph({
 
   const points = readings.map((reading) => ({
     reading,
-    x: reading.order / reading.gratingSpacingM / 1e6,
-    y: reading.meanSinTheta,
+    x: reading.order * reading.gratingLinesPerM / 1e6,
+    y: reading.sinTheta,
   }));
   const xMax = Math.max(...points.map((point) => point.x), 0.1) * 1.12;
   const yMax = Math.min(1, Math.max(...points.map((point) => point.y), 0.05) * 1.12);
   const toX = (value: number) => pad.left + value / xMax * plotWidth;
   const toY = (value: number) => pad.top + plotHeight - value / yMax * plotHeight;
-  const graphSlope = wavelengthNm / 1000;
+  const graphSlope = wavelengthM * 1e6;
   const lineEndX = graphSlope > 0 ? Math.min(xMax, yMax / graphSlope) : 0;
   const lineEndY = graphSlope * lineEndX;
 
   return (
     <div className="graph-section">
-      <h3>sin θ̄ vs n/d</h3>
+      <h3>sin θ vs nN</h3>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="svg-graph"
         role="img"
-        aria-label="Recorded mean sine diffraction angles plotted against diffraction order divided by grating spacing"
+        aria-label="Recorded sine diffraction angles plotted against diffraction order times grating density"
       >
         <rect width={width} height={height} fill="var(--code-bg, #151923)" rx="6" />
         {Array.from({ length: 5 }, (_, index) => {
@@ -93,14 +94,14 @@ function WavelengthGraph({
           <g key={reading.trial}>
             <circle cx={toX(x)} cy={toY(y)} r="4.5" fill="#f1a64a">
               <title>
-                Trial {reading.trial}: n/d={(reading.order / reading.gratingSpacingM).toExponential(3)} m⁻¹,
-                sin θ̄={reading.meanSinTheta.toFixed(4)}
+                Trial {reading.trial}: nN={(reading.order * reading.gratingLinesPerM).toExponential(3)} m⁻¹,
+                sin θ={reading.sinTheta.toFixed(4)}
               </title>
             </circle>
           </g>
         ))}
         <text x={pad.left + plotWidth / 2} y={height - 8} textAnchor="middle" fontSize="10" fill="var(--text-h, #e2e8f0)">
-          n/d (10⁶ m⁻¹)
+          nN (10⁶ m⁻¹)
         </text>
         <text
           x="17"
@@ -110,11 +111,11 @@ function WavelengthGraph({
           fill="var(--text-h, #e2e8f0)"
           transform={`rotate(-90 17 ${pad.top + plotHeight / 2})`}
         >
-          sin θ̄
+          sin θ
         </text>
       </svg>
       <p className="graph-note">
-        The origin-constrained line uses the recorded readings; its slope corresponds to λ.
+        The origin-constrained line uses recorded measurements; its slope corresponds to λ.
       </p>
     </div>
   );
@@ -127,12 +128,21 @@ export default function DiffractionGratingExperiment() {
   const [error, setError] = useState('');
   const state = useMemo(() => computeState(params), [params]);
   const result = useMemo(() => computeResult(readings), [readings]);
+  const readingsByDistance = useMemo(() => {
+    const groups = new Map<number, Reading[]>();
+    readings.forEach((reading) => {
+      const group = groups.get(reading.screenDistanceM) ?? [];
+      group.push(reading);
+      groups.set(reading.screenDistanceM, group);
+    });
+    return groups;
+  }, [readings]);
   const canMeasure = state.selectedReachesScreen && state.selectedOrder > 0;
 
   function handleParamChange(updated: Partial<Params>) {
     setParams((previous) => {
       const next = { ...previous, ...updated };
-      const maximumOrder = getMaximumOrder(next.wavelengthNm, next.gratingLinesPerMm);
+      const maximumOrder = getMaximumOrder(next.gratingLinesPerM);
       next.order = Math.max(1, Math.min(next.order, maximumOrder));
       return next;
     });
@@ -145,8 +155,7 @@ export default function DiffractionGratingExperiment() {
       setError('This order is grazing and does not form a finite spot on the screen.');
       return;
     }
-    const angle = state.selectedAngleDegrees;
-    setPending((previous) => ({ ...previous, [side]: angle }));
+    setPending((previous) => ({ ...previous, [side]: state.selectedPositionM }));
     setError('');
   }
 
@@ -154,7 +163,7 @@ export default function DiffractionGratingExperiment() {
     if (pending.left === null || pending.right === null) return;
     const reading = createReading(readings.length + 1, params, pending.left, pending.right);
     if (!reading) {
-      setError('The selected order or angle readings are not physically valid. Measure both sides again.');
+      setError('The selected order or spot-distance measurements are not physically valid. Measure both sides again.');
       return;
     }
     setReadings((previous) => [...previous, reading]);
@@ -178,51 +187,63 @@ export default function DiffractionGratingExperiment() {
           <ExperimentCanvas
             params={params}
             state={state}
-            measuredLeftAngle={pending.left}
-            measuredRightAngle={pending.right}
+            measuredLeftX={pending.left}
+            measuredRightX={pending.right}
           />
         </div>
 
         <section className="diffraction-observations">
           <p className="section-label">Observation table</p>
-          <div className="diffraction-table-scroll" style={{ overflowX: 'auto' }}>
-            <table className="obs-table" aria-label="Diffraction grating angle observations">
-              <thead>
-                <tr>
-                  <th>Trial</th>
-                  <th>Order n</th>
-                  <th>Grating (lines/mm)</th>
-                  <th>Left |θL| (°)</th>
-                  <th>Right |θR| (°)</th>
-                  <th>λ experimental (nm)</th>
-                  <th>λ reference (nm)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {readings.length > 0 ? readings.map((reading) => (
-                  <tr key={reading.trial} className="observation-row">
-                    <td data-label="Trial">{reading.trial}</td>
-                    <td data-label="Order n">{reading.order}</td>
-                    <td data-label="Grating (lines/mm)">{reading.gratingLinesPerMm}</td>
-                    <td data-label="Left |θL| (°)">{reading.leftAngleDegrees.toFixed(2)}</td>
-                    <td data-label="Right |θR| (°)">{reading.rightAngleDegrees.toFixed(2)}</td>
-                    <td data-label="λ experimental (nm)">{reading.experimentalWavelengthNm.toFixed(2)}</td>
-                    <td data-label="λ reference (nm)">{reading.referenceWavelengthNm.toFixed(1)}</td>
-                  </tr>
-                )) : (
-                  <tr className="observations-empty-row">
-                    <td colSpan={7} className="observations-empty">
-                      No observations yet. Measure both diffraction angles and record a trial.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          {readingsByDistance.size > 0 ? (
+            Array.from(readingsByDistance.entries()).map(([screenDistanceM, group]) => (
+              <div className="diffraction-table-scroll" style={{ overflowX: 'auto' }} key={screenDistanceM}>
+                <h3>Grating-to-screen distance d = {screenDistanceM.toFixed(2)} m</h3>
+                <table className="obs-table" aria-label={`Diffraction observations at screen distance ${screenDistanceM} metres`}>
+                  <thead>
+                    <tr>
+                      <th>Trial</th>
+                      <th>Order n</th>
+                      <th>x̄ (m)</th>
+                      <th>d (m)</th>
+                      <th>θ = tan⁻¹(x̄/d) (°)</th>
+                      <th>sin θ</th>
+                      <th>N (lines/m)</th>
+                      <th>λ (m)</th>
+                      <th>λ (nm)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.map((reading) => (
+                      <tr key={reading.trial} className="observation-row">
+                        <td data-label="Trial">{reading.trial}</td>
+                        <td data-label="Order n">{reading.order}</td>
+                        <td data-label="x̄ (m)">{reading.meanXM.toFixed(5)}</td>
+                        <td data-label="d (m)">{reading.screenDistanceM.toFixed(2)}</td>
+                        <td data-label="θ = tan⁻¹(x̄/d) (°)">{reading.angleDegrees.toFixed(3)}</td>
+                        <td data-label="sin θ">{reading.sinTheta.toFixed(6)}</td>
+                        <td data-label="N (lines/m)">{reading.gratingLinesPerM.toLocaleString('en-US')}</td>
+                        <td data-label="λ (m)">{reading.experimentalWavelengthM.toExponential(4)}</td>
+                        <td data-label="λ (nm)">{(reading.experimentalWavelengthM * 1e9).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    <tr className="observation-row">
+                      <th colSpan={7} scope="row">Mean wavelength at d = {screenDistanceM.toFixed(2)} m</th>
+                      <td>{meanWavelengthM(group).toExponential(4)}</td>
+                      <td>{(meanWavelengthM(group) * 1e9).toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ))
+          ) : (
+            <p className="observations-empty">
+              No observations yet. Measure both spot distances and record an order.
+            </p>
+          )}
         </section>
 
         <section className="diffraction-graph">
-          <WavelengthGraph readings={readings} wavelengthNm={result.graphWavelengthNm} />
+          <WavelengthGraph readings={readings} wavelengthM={result.graphWavelengthM} />
         </section>
 
         <section className="results-panel diffraction-results" aria-live="polite">
@@ -230,27 +251,23 @@ export default function DiffractionGratingExperiment() {
           {latestReading ? (
             <>
               <div className="result-row">
-                <span>Mean experimental wavelength</span>
-                <span className="result-value">{result.meanWavelengthNm.toFixed(2)} nm</span>
+                <span>Overall mean wavelength</span>
+                <span className="result-value">
+                  {result.meanWavelengthM.toExponential(4)} m ({(result.meanWavelengthM * 1e9).toFixed(2)} nm)
+                </span>
               </div>
               <div className="result-row">
                 <span>Graph slope wavelength</span>
-                <span className="result-value">{result.graphWavelengthNm.toFixed(2)} nm</span>
-              </div>
-              <div className="result-row">
-                <span>Mean reference wavelength</span>
-                <span className="result-ref">{result.meanReferenceWavelengthNm.toFixed(2)} nm</span>
-              </div>
-              <div className="result-row">
-                <span>Percentage error</span>
-                <span className="result-value">{result.percentError.toFixed(2)}%</span>
+                <span className="result-value">
+                  {result.graphWavelengthM.toExponential(4)} m ({(result.graphWavelengthM * 1e9).toFixed(2)} nm)
+                </span>
               </div>
             </>
           ) : (
-            <p className="graph-note">Record angle measurements to calculate the experimental wavelength and percentage error.</p>
+            <p className="graph-note">Record spot distances to calculate the experimental wavelength.</p>
           )}
           <p className="diffraction-formula">
-            λ = d (sin |θL| + sin |θR|) / (2n) &nbsp; · &nbsp; y = L tan θ
+            θ = tan⁻¹(x/d) &nbsp; · &nbsp; λ = sin θ/(nN) &nbsp; · &nbsp; N in lines/m; x and d in metres.
           </p>
         </section>
 
@@ -258,7 +275,7 @@ export default function DiffractionGratingExperiment() {
           <h3>Live calculation</h3>
           <div className="diffraction-live-results-grid">
             <div className="result-row">
-              <span>Grating spacing d</span>
+              <span>Grating spacing 1/N</span>
               <span className="result-value">{(state.gratingSpacingM * 1e6).toFixed(3)} μm</span>
             </div>
             <div className="result-row">
@@ -266,14 +283,14 @@ export default function DiffractionGratingExperiment() {
               <span className="result-value">{state.maximumOrder}</span>
             </div>
             <div className="result-row">
-              <span>Screen position |y|</span>
+              <span>Selected spot distance |x|</span>
               <span className="result-value">
-                {state.selectedReachesScreen ? `${state.selectedPositionM.toFixed(3)} m` : '∞ (grazing)'}
+                {state.selectedReachesScreen ? `${state.selectedPositionM.toFixed(4)} m` : '∞ (grazing)'}
               </span>
             </div>
           </div>
           <p className="diffraction-measurement-hint">
-            d sin θ = nλ, with λ converted to metres for the calculation.
+            Simulation positions update with screen distance, order, and grating density.
           </p>
         </section>
       </main>
@@ -286,52 +303,52 @@ export default function DiffractionGratingExperiment() {
         />
 
         <section className="measurements-panel diffraction-measurements">
-          <h3>Angle Measurements</h3>
+          <h3>Spot-distance measurements</h3>
           <p className="diffraction-measurement-readout">
-            Selected n = {state.selectedOrder || '—'} · θ = {canMeasure ? `${state.selectedAngleDegrees.toFixed(2)}°` : 'grazing'}
+            Selected n = {state.selectedOrder || '—'} · d = {params.screenDistanceM.toFixed(2)} m
           </p>
           <p className="diffraction-measurement-hint">
-            Inspect the symmetric spots, then capture each side independently. The stored angles are magnitudes.
+            Capture each symmetric spot distance from the central maximum. Both distances are averaged for the observation.
           </p>
           <div className="diffraction-measurement-actions">
             <button
               type="button"
               className="btn btn-primary diffraction-angle-button"
               data-measured={pending.left !== null}
-              aria-label="Left Angle"
+              aria-label="Left x"
               onClick={() => handleMeasure('left')}
               disabled={!canMeasure}
             >
-              Left Angle
+              Left x
             </button>
             <button
               type="button"
               className="btn btn-primary diffraction-angle-button"
               data-measured={pending.right !== null}
-              aria-label="Right Angle"
+              aria-label="Right x"
               onClick={() => handleMeasure('right')}
               disabled={!canMeasure}
             >
-              Right Angle
+              Right x
             </button>
           </div>
           <div className="diffraction-measurement-values" aria-live="polite">
             <div className={`diffraction-measurement-value${pending.left === null ? '' : ' is-measured'}`}>
-              <span className="diffraction-measurement-side">Left angle</span>
+              <span className="diffraction-measurement-side">Left x</span>
               <span className="diffraction-measurement-status">
                 {pending.left === null ? 'Awaiting' : 'Measured'}
               </span>
               <strong className="diffraction-measurement-value-number">
-                {pending.left === null ? '—' : `${pending.left.toFixed(2)}°`}
+                {pending.left === null ? '—' : `${pending.left.toFixed(4)} m`}
               </strong>
             </div>
             <div className={`diffraction-measurement-value${pending.right === null ? '' : ' is-measured'}`}>
-              <span className="diffraction-measurement-side">Right angle</span>
+              <span className="diffraction-measurement-side">Right x</span>
               <span className="diffraction-measurement-status">
                 {pending.right === null ? 'Awaiting' : 'Measured'}
               </span>
               <strong className="diffraction-measurement-value-number">
-                {pending.right === null ? '—' : `${pending.right.toFixed(2)}°`}
+                {pending.right === null ? '—' : `${pending.right.toFixed(4)} m`}
               </strong>
             </div>
           </div>
@@ -344,7 +361,7 @@ export default function DiffractionGratingExperiment() {
             Record observation
           </button>
           {error && <p className="diffraction-error" role="alert">{error}</p>}
-          {readings.length > 0 && (
+          {(readings.length > 0 || pending.left !== null || pending.right !== null) && (
             <button type="button" className="btn btn-secondary diffraction-reset-button" onClick={handleReset}>
               ↺ Reset experiment
             </button>

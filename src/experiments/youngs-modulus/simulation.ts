@@ -23,8 +23,12 @@
  */
 
 export const GRAVITY = 9.81; // m/s²
+export const AUTO_LOAD_INCREMENT_KG = 0.05;
+export const AUTO_MIN_READINGS = 2;
+export const AUTO_MAX_READINGS = 20;
 
 export type MaterialKey = 'steel' | 'aluminium' | 'brass' | 'copper' | 'glass';
+export type ObservationSequence = 'Loading' | 'Unloading';
 
 export interface Material {
   label: string;
@@ -64,7 +68,8 @@ export interface State {
 
 export interface Reading {
   no: number;
-  source: 'Microscope' | 'Manual';
+  source: 'Microscope' | 'Manual' | 'Automatic';
+  sequence: ObservationSequence;
   material: MaterialKey;
   mass: number;        // kg
   W: number;           // N
@@ -120,6 +125,79 @@ export function computeTheoreticalY(
 ): number {
   if (E_ref <= 0 || b <= 0 || d <= 0 || l <= 0) return 0;
   return (W * Math.pow(l, 3)) / (4 * b * Math.pow(d, 3) * E_ref);
+}
+
+export function getAutomaticLoads(
+  readingCount: number,
+  sequence: ObservationSequence,
+): number[] {
+  if (
+    !Number.isInteger(readingCount) ||
+    readingCount < AUTO_MIN_READINGS ||
+    readingCount > AUTO_MAX_READINGS
+  ) {
+    return [];
+  }
+
+  const loads = Array.from(
+    { length: readingCount },
+    (_, index) => Number(((index + 1) * AUTO_LOAD_INCREMENT_KG).toFixed(2)),
+  );
+  return sequence === 'Loading' ? loads : loads.reverse();
+}
+
+export function createAutomaticReading(
+  no: number,
+  sequence: ObservationSequence,
+  params: Params,
+  zeroReading: number,
+): Reading | null {
+  if (
+    !Number.isInteger(no) ||
+    no < 1 ||
+    !Number.isFinite(zeroReading) ||
+    zeroReading < 0 ||
+    zeroReading > 10
+  ) {
+    return null;
+  }
+
+  const state = computeState(params);
+  const depressionMm = state.yTheoretical * 1000;
+  const microscopeReading = zeroReading + depressionMm;
+  if (
+    !Number.isFinite(depressionMm) ||
+    depressionMm <= 0 ||
+    microscopeReading > 10
+  ) {
+    return null;
+  }
+
+  const ECalculated = computeE(
+    state.W,
+    params.l,
+    params.b,
+    params.d,
+    state.yTheoretical,
+  );
+  if (!Number.isFinite(ECalculated) || ECalculated <= 0) return null;
+
+  return {
+    no,
+    source: 'Automatic',
+    sequence,
+    material: params.material,
+    mass: params.mass,
+    W: state.W,
+    l: params.l,
+    b: params.b,
+    d: params.d,
+    zeroReading,
+    microscopeReading,
+    y: state.yTheoretical,
+    E_calculated: ECalculated,
+    E_ref: state.E_ref,
+  };
 }
 
 /**

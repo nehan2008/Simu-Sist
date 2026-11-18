@@ -6,18 +6,43 @@
  */
 
 import SliderInput from '../../components/ui/SliderInput';
-import { MATERIALS } from './simulation';
-import type { Params, MaterialKey } from './simulation';
+import {
+  AUTO_LOAD_INCREMENT_KG,
+  AUTO_MAX_READINGS,
+  AUTO_MIN_READINGS,
+  MATERIALS,
+} from './simulation';
+import type { MaterialKey, ObservationSequence, Params } from './simulation';
 
 interface ControlsProps {
   params: Params;
   disabled?: boolean;
+  sequence: ObservationSequence;
+  requestedReadingCount: number;
+  automaticProgress: { sequence: ObservationSequence; completed: number; total: number } | null;
+  automaticError: string;
   onChange: (updated: Partial<Params>) => void;
+  onSequenceChange: (sequence: ObservationSequence) => void;
+  onRequestedReadingCountChange: (count: number) => void;
+  onRunAutomaticSequence: (sequence: ObservationSequence) => void;
 }
 
-export default function Controls({ params, disabled = false, onChange }: ControlsProps) {
+export default function Controls({
+  params,
+  disabled = false,
+  sequence,
+  requestedReadingCount,
+  automaticProgress,
+  automaticError,
+  onChange,
+  onSequenceChange,
+  onRequestedReadingCountChange,
+  onRunAutomaticSequence,
+}: ControlsProps) {
+  const controlsDisabled = disabled || automaticProgress !== null;
+
   return (
-    <div className="controls-panel">
+    <div className="controls-panel youngs-modulus-controls">
       <p className="section-label">Beam &amp; Load Parameters</p>
 
       {/* Material selector */}
@@ -29,7 +54,7 @@ export default function Controls({ params, disabled = false, onChange }: Control
           id="material-select"
           className="material-select"
           value={params.material}
-          disabled={disabled}
+          disabled={controlsDisabled}
           onChange={(e) => onChange({ material: e.target.value as MaterialKey })}
           aria-label="Select beam material"
         >
@@ -50,7 +75,7 @@ export default function Controls({ params, disabled = false, onChange }: Control
         max={1.0}
         step={0.05}
         unit=" kg"
-        disabled={disabled}
+        disabled={controlsDisabled}
         onChange={(v) => onChange({ mass: v })}
       />
 
@@ -61,7 +86,7 @@ export default function Controls({ params, disabled = false, onChange }: Control
         max={1.00}
         step={0.05}
         unit=" m"
-        disabled={disabled}
+        disabled={controlsDisabled}
         onChange={(v) => onChange({ l: v })}
       />
 
@@ -73,7 +98,7 @@ export default function Controls({ params, disabled = false, onChange }: Control
         max={50}
         step={1}
         unit=" mm"
-        disabled={disabled}
+        disabled={controlsDisabled}
         onChange={(v) => onChange({ b: v / 1000 })}
       />
 
@@ -85,9 +110,76 @@ export default function Controls({ params, disabled = false, onChange }: Control
         max={10.0}
         step={0.5}
         unit=" mm"
-        disabled={disabled}
+        disabled={controlsDisabled}
         onChange={(v) => onChange({ d: v / 1000 })}
       />
+
+      <section className="youngs-auto-load-panel" aria-labelledby="youngs-auto-load-heading">
+        <h3 id="youngs-auto-load-heading">Automatic loading &amp; unloading</h3>
+        <p>
+          Each pass records {requestedReadingCount} simulated microscope readings at
+          {` ${(AUTO_LOAD_INCREMENT_KG * 1000).toFixed(0)} g`} load intervals. The
+          unloading pass follows the same loads in reverse.
+        </p>
+        <SliderInput
+          label="Readings per pass"
+          value={requestedReadingCount}
+          min={AUTO_MIN_READINGS}
+          max={AUTO_MAX_READINGS}
+          step={1}
+          unit=" readings"
+          disabled={controlsDisabled}
+          showNumericInput
+          precision={0}
+          onChange={onRequestedReadingCountChange}
+        />
+        <div className="youngs-auto-load-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={controlsDisabled}
+            onClick={() => onRunAutomaticSequence('Loading')}
+          >
+            Auto load ↑
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={controlsDisabled}
+            onClick={() => onRunAutomaticSequence('Unloading')}
+          >
+            Auto unload ↓
+          </button>
+        </div>
+        {automaticProgress ? (
+          <p className="youngs-auto-load-status" role="status" aria-live="polite">
+            {automaticProgress.sequence} pass: {automaticProgress.completed} of {automaticProgress.total} readings recorded.
+          </p>
+        ) : (
+          <p className="youngs-auto-load-status">
+            The pass spans {AUTO_LOAD_INCREMENT_KG.toFixed(2)}–{(requestedReadingCount * AUTO_LOAD_INCREMENT_KG).toFixed(2)} kg.
+          </p>
+        )}
+        {automaticError && <p className="youngs-auto-load-error" role="alert">{automaticError}</p>}
+      </section>
+
+      <fieldset className="youngs-sequence-selector" disabled={controlsDisabled}>
+        <legend>Sequence for manual readings</legend>
+        <div>
+          {(['Loading', 'Unloading'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={sequence === value ? 'is-selected' : ''}
+              aria-pressed={sequence === value}
+              onClick={() => onSequenceChange(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <p>Microscope and manual-entry readings are added to the selected sequence.</p>
+      </fieldset>
     </div>
   );
 }

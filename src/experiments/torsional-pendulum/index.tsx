@@ -6,10 +6,11 @@ import {
   computeResult,
   computeState,
   createReading,
+  createPlatformPeriodMeasurement,
   isValidParams,
   isValidMeasuredTime,
 } from './simulation';
-import type { Params, Reading } from './simulation';
+import type { Params, PlatformPeriodMeasurement, Reading } from './simulation';
 
 function T2InertiaGraph({
   readings,
@@ -142,6 +143,9 @@ function T2InertiaGraph({
 export default function TorsionalPendulumExperiment() {
   const [params, setParams] = useState<Params>(DEFAULT_PARAMS);
   const [readings, setReadings] = useState<Reading[]>([]);
+  const [t0Measurement, setT0Measurement] = useState<PlatformPeriodMeasurement | null>(null);
+  const [wireDiameterReadingsMm, setWireDiameterReadingsMm] = useState<number[]>([]);
+  const [wireDiameterInput, setWireDiameterInput] = useState('');
   const [oscillationCount, setOscillationCount] = useState(10);
   const [elapsedTimeS, setElapsedTimeS] = useState(0);
   const [isTiming, setIsTiming] = useState(false);
@@ -187,6 +191,28 @@ export default function TorsionalPendulumExperiment() {
     setError('');
   }
 
+  function handleToggleMasses() {
+    if (isTiming || isRecording) return;
+    setParams((previous) => ({ ...previous, massesAttached: !previous.massesAttached }));
+    setError('');
+  }
+
+  function handleAddWireDiameter() {
+    const diameterMm = wireDiameterInput.trim() === '' ? Number.NaN : Number(wireDiameterInput);
+    if (!Number.isFinite(diameterMm) || diameterMm < 0.5 || diameterMm > 2) {
+      setError('Enter a wire diameter between 0.5 and 2.0 mm.');
+      return;
+    }
+
+    const nextMeasurements = [...wireDiameterReadingsMm, diameterMm];
+    const meanDiameterMm =
+      nextMeasurements.reduce((sum, diameter) => sum + diameter, 0) / nextMeasurements.length;
+    setWireDiameterReadingsMm(nextMeasurements);
+    setParams((previous) => ({ ...previous, r: meanDiameterMm / 2000 }));
+    setWireDiameterInput('');
+    setError('');
+  }
+
   function handleStartTiming() {
     if (!isValidParams(params) || isTiming || measurementMode !== 'stopwatch' || isRecording) return;
     setElapsedTimeS(0);
@@ -218,20 +244,35 @@ export default function TorsionalPendulumExperiment() {
     recordingRef.current = true;
     setIsRecording(true);
 
-    const reading = createReading(
-      readings.length + 1,
-      params,
-      oscillationCount,
-      totalTimeS,
-    );
-    if (!reading) {
-      recordingRef.current = false;
-      setIsRecording(false);
-      setError('The measured time or experiment parameters are invalid. Reset the timer and try again.');
-      return;
+    if (params.massesAttached) {
+      const reading = createReading(
+        readings.length + 1,
+        params,
+        oscillationCount,
+        totalTimeS,
+      );
+      if (!reading) {
+        recordingRef.current = false;
+        setIsRecording(false);
+        setError('The measured time or experiment parameters are invalid. Reset the timer and try again.');
+        return;
+      }
+      setReadings((previous) => [...previous, reading]);
+    } else {
+      const measurement = createPlatformPeriodMeasurement(
+        params,
+        oscillationCount,
+        totalTimeS,
+      );
+      if (!measurement) {
+        recordingRef.current = false;
+        setIsRecording(false);
+        setError('The measured time or platform parameters are invalid for T₀.');
+        return;
+      }
+      setT0Measurement(measurement);
     }
 
-    setReadings((previous) => [...previous, reading]);
     setElapsedTimeS(0);
     setManualTotalTimeS('');
     setError('');
@@ -246,6 +287,9 @@ export default function TorsionalPendulumExperiment() {
     timerStartRef.current = null;
     setParams(DEFAULT_PARAMS);
     setReadings([]);
+    setT0Measurement(null);
+    setWireDiameterReadingsMm([]);
+    setWireDiameterInput('');
     setOscillationCount(10);
     setElapsedTimeS(0);
     setMeasurementMode('stopwatch');
@@ -273,6 +317,8 @@ export default function TorsionalPendulumExperiment() {
               elapsedTimeS={elapsedTimeS}
               manualTotalTimeS={manualTotalTimeS}
               measurementMode={measurementMode}
+              massesAttached={params.massesAttached}
+              t0Measurement={t0Measurement}
               isTiming={isTiming}
               canRecordStopwatch={canRecordStopwatch}
               canRecordManual={canRecordManual}
@@ -309,7 +355,7 @@ export default function TorsionalPendulumExperiment() {
                     <th>Measured t (s)</th>
                     <th>T (s)</th>
                     <th>T² (s²)</th>
-                    <th>η (GPa)</th>
+                    <th>Rigidity modulus η (N/m²)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -322,7 +368,12 @@ export default function TorsionalPendulumExperiment() {
                       <td data-label="Measured t (s)">{reading.totalTimeS.toFixed(3)}</td>
                       <td data-label="T (s)">{reading.periodS.toFixed(4)}</td>
                       <td data-label="T² (s²)">{reading.periodSquaredS2.toFixed(5)}</td>
-                      <td data-label="η (GPa)">{(reading.rigidityModulusPa / 1e9).toFixed(2)}</td>
+                      <td data-label="Rigidity modulus η (N/m²)">
+                        <strong>{reading.rigidityModulusPa.toExponential(3)}</strong>
+                        <span className="torsional-gpa-value">
+                          {(reading.rigidityModulusPa / 1e9).toFixed(2)} GPa
+                        </span>
+                      </td>
                     </tr>
                   )) : (
                     <tr className="observations-empty-row">
@@ -355,19 +406,22 @@ export default function TorsionalPendulumExperiment() {
                 <div className="result-row">
                   <span>Rigidity modulus from measured T</span>
                   <span className="result-value">
-                    {(latestReading.rigidityModulusPa / 1e9).toFixed(2)} GPa
+                    {latestReading.rigidityModulusPa.toExponential(3)} N/m²
+                    <small>({(latestReading.rigidityModulusPa / 1e9).toFixed(2)} GPa)</small>
                   </span>
                 </div>
                 <div className="result-row">
-                  <span>Mean experimental η</span>
+                  <span>Mean Rigidity Modulus</span>
                   <span className="result-value">
-                    {(result.meanRigidityModulusPa / 1e9).toFixed(2)} GPa
+                    {result.meanRigidityModulusPa.toExponential(3)} N/m²
+                    <small>({(result.meanRigidityModulusPa / 1e9).toFixed(2)} GPa)</small>
                   </span>
                 </div>
                 <div className="result-row">
-                  <span>Reference η</span>
+                  <span>Reference Rigidity Modulus</span>
                   <span className="result-ref">
-                    {(result.meanReferenceRigidityPa / 1e9).toFixed(1)} GPa
+                    {result.meanReferenceRigidityPa.toExponential(3)} N/m²
+                    <small>({(result.meanReferenceRigidityPa / 1e9).toFixed(1)} GPa)</small>
                   </span>
                 </div>
                 <div className="result-row">
@@ -376,9 +430,10 @@ export default function TorsionalPendulumExperiment() {
                 </div>
                 {result.canFitGraph && (
                   <div className="result-row">
-                    <span>η from T² vs I slope</span>
+                    <span>Rigidity Modulus from T² vs I slope</span>
                     <span className="result-value">
-                      {(result.rigidityFromSlopePa / 1e9).toFixed(2)} GPa
+                      {result.rigidityFromSlopePa.toExponential(3)} N/m²
+                      <small>({(result.rigidityFromSlopePa / 1e9).toFixed(2)} GPa)</small>
                     </span>
                   </div>
                 )}
@@ -398,7 +453,15 @@ export default function TorsionalPendulumExperiment() {
             isTiming={isTiming}
             hasReadings={readings.length > 0}
             isRecording={isRecording}
+            wireDiameterReadingsMm={wireDiameterReadingsMm}
+            wireDiameterInput={wireDiameterInput}
             onChange={handleParamChange}
+            onToggleMasses={handleToggleMasses}
+            onWireDiameterInputChange={(value) => {
+              setWireDiameterInput(value);
+              setError('');
+            }}
+            onAddWireDiameter={handleAddWireDiameter}
             onResetExperiment={handleResetExperiment}
           />
 
@@ -409,7 +472,7 @@ export default function TorsionalPendulumExperiment() {
               <span className="result-value">{state.platformMomentOfInertia.toExponential(3)} kg·m²</span>
             </div>
             <div className="result-row">
-              <span>Total inertia, I</span>
+              <span>{params.massesAttached ? 'Total inertia with masses, I' : 'Platform inertia without masses, I₀'}</span>
               <span className="result-value">{state.momentOfInertia.toExponential(3)} kg·m²</span>
             </div>
             <div className="result-row">
@@ -417,8 +480,10 @@ export default function TorsionalPendulumExperiment() {
               <span className="result-value">{state.torsionalConstant.toExponential(3)} N·m/rad</span>
             </div>
             <p className="torsional-hint">
-              Reference rigidity: {state.materialLabel}, {(state.referenceRigidityPa / 1e9).toFixed(1)} GPa.
-              The reference period animates the apparatus; it is not used to calculate the measured η.
+              Reference Rigidity Modulus: {state.materialLabel}, {state.referenceRigidityPa.toExponential(3)} N/m²
+              ({(state.referenceRigidityPa / 1e9).toFixed(1)} GPa). The mean measured wire radius
+              is {(params.r * 1000).toFixed(4)} mm. The reference period animates the apparatus;
+              it is not used to calculate the measured Rigidity Modulus.
             </p>
           </section>
         </aside>

@@ -1,22 +1,25 @@
 /**
  * Laser wavelength measurement with a diffraction grating.
  *
- * SI units are used in the calculations:
- *   d sin(theta) = n lambda
- *   y = L tan(theta)
+ * The simulated laser wavelength only drives the apparatus. Experimental
+ * wavelengths are calculated exclusively from recorded x, d, n, and N values.
  */
 
-export const SCREEN_DISTANCE_M = 1.5;
+const SIMULATION_WAVELENGTH_NM = 532;
+export const MIN_SCREEN_DISTANCE_M = 0.5;
+export const MAX_SCREEN_DISTANCE_M = 3;
+export const MIN_GRATING_LINES_PER_M = 100_000;
+export const MAX_GRATING_LINES_PER_M = 1_200_000;
 
 export interface Params {
-  wavelengthNm: number;
-  gratingLinesPerMm: number;
+  gratingLinesPerM: number;
+  screenDistanceM: number;
   order: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
-  wavelengthNm: 532,
-  gratingLinesPerMm: 300,
+  gratingLinesPerM: 300_000,
+  screenDistanceM: 1.5,
   order: 1,
 };
 
@@ -30,7 +33,6 @@ export interface DiffractionOrder {
 }
 
 export interface State {
-  wavelengthM: number;
   gratingSpacingM: number;
   maximumOrder: number;
   selectedOrder: number;
@@ -45,46 +47,46 @@ export interface State {
 export interface Reading {
   trial: number;
   order: number;
-  gratingLinesPerMm: number;
-  gratingSpacingM: number;
-  leftAngleDegrees: number;
-  rightAngleDegrees: number;
-  meanSinTheta: number;
-  experimentalWavelengthNm: number;
-  referenceWavelengthNm: number;
+  screenDistanceM: number;
+  gratingLinesPerM: number;
+  leftXM: number;
+  rightXM: number;
+  meanXM: number;
+  angleRadians: number;
+  angleDegrees: number;
+  sinTheta: number;
+  experimentalWavelengthM: number;
 }
 
 export interface ExperimentResult {
-  meanWavelengthNm: number;
-  graphWavelengthNm: number;
-  meanReferenceWavelengthNm: number;
-  percentError: number;
+  meanWavelengthM: number;
+  graphWavelengthM: number;
 }
 
-export function spacingFromDensity(gratingLinesPerMm: number): number {
-  if (!Number.isFinite(gratingLinesPerMm) || gratingLinesPerMm <= 0) return 0;
-  return 1 / (gratingLinesPerMm * 1000);
+export function spacingFromDensity(gratingLinesPerM: number): number {
+  if (!Number.isFinite(gratingLinesPerM) || gratingLinesPerM <= 0) return 0;
+  return 1 / gratingLinesPerM;
 }
 
-export function getMaximumOrder(wavelengthNm: number, gratingLinesPerMm: number): number {
-  const spacingM = spacingFromDensity(gratingLinesPerMm);
-  if (!Number.isFinite(wavelengthNm) || wavelengthNm <= 0 || spacingM <= 0) return 0;
+export function getMaximumOrder(gratingLinesPerM: number): number {
+  const spacingM = spacingFromDensity(gratingLinesPerM);
+  if (spacingM <= 0) return 0;
 
-  const wavelengthM = wavelengthNm * 1e-9;
+  const wavelengthM = SIMULATION_WAVELENGTH_NM * 1e-9;
   return Math.floor(spacingM / wavelengthM + 1e-12);
 }
 
 export function isValidParams(params: Params): boolean {
   return (
-    Number.isFinite(params.wavelengthNm) &&
-    params.wavelengthNm >= 380 &&
-    params.wavelengthNm <= 750 &&
-    Number.isFinite(params.gratingLinesPerMm) &&
-    params.gratingLinesPerMm >= 100 &&
-    params.gratingLinesPerMm <= 1200 &&
+    Number.isFinite(params.gratingLinesPerM) &&
+    params.gratingLinesPerM >= MIN_GRATING_LINES_PER_M &&
+    params.gratingLinesPerM <= MAX_GRATING_LINES_PER_M &&
+    Number.isFinite(params.screenDistanceM) &&
+    params.screenDistanceM >= MIN_SCREEN_DISTANCE_M &&
+    params.screenDistanceM <= MAX_SCREEN_DISTANCE_M &&
     Number.isInteger(params.order) &&
     params.order >= 1 &&
-    params.order <= getMaximumOrder(params.wavelengthNm, params.gratingLinesPerMm)
+    params.order <= getMaximumOrder(params.gratingLinesPerM)
   );
 }
 
@@ -112,9 +114,9 @@ export function wavelengthToColor(wavelengthNm: number): string {
 }
 
 export function computeState(params: Params): State {
-  const wavelengthM = params.wavelengthNm * 1e-9;
-  const gratingSpacingM = spacingFromDensity(params.gratingLinesPerMm);
-  const maximumOrder = getMaximumOrder(params.wavelengthNm, params.gratingLinesPerMm);
+  const wavelengthM = SIMULATION_WAVELENGTH_NM * 1e-9;
+  const gratingSpacingM = spacingFromDensity(params.gratingLinesPerM);
+  const maximumOrder = getMaximumOrder(params.gratingLinesPerM);
   const selectedOrder = Math.max(0, Math.min(Math.round(params.order), maximumOrder));
 
   const orders: DiffractionOrder[] = [];
@@ -130,14 +132,13 @@ export function computeState(params: Params): State {
       ratio: boundedRatio,
       angleRadians,
       angleDegrees: angleRadians * 180 / Math.PI,
-      positionM: reachesScreen ? SCREEN_DISTANCE_M * Math.tan(angleRadians) : Number.POSITIVE_INFINITY,
+      positionM: reachesScreen ? params.screenDistanceM * Math.tan(angleRadians) : Number.POSITIVE_INFINITY,
       reachesScreen,
     });
   }
 
   const selected = orders[orders.length - 1];
   return {
-    wavelengthM,
     gratingSpacingM,
     maximumOrder,
     selectedOrder: selected ? selected.order : 0,
@@ -146,26 +147,24 @@ export function computeState(params: Params): State {
     selectedPositionM: selected ? selected.positionM : 0,
     selectedReachesScreen: selected?.reachesScreen ?? false,
     orders,
-    laserColor: wavelengthToColor(params.wavelengthNm),
+    laserColor: wavelengthToColor(SIMULATION_WAVELENGTH_NM),
   };
 }
 
 export function createReading(
   trial: number,
   params: Params,
-  leftAngleDegrees: number,
-  rightAngleDegrees: number,
+  leftXM: number,
+  rightXM: number,
 ): Reading | null {
   if (
     !isValidParams(params) ||
     !Number.isInteger(trial) ||
     trial < 1 ||
-    !Number.isFinite(leftAngleDegrees) ||
-    !Number.isFinite(rightAngleDegrees) ||
-    leftAngleDegrees <= 0 ||
-    leftAngleDegrees >= 90 ||
-    rightAngleDegrees <= 0 ||
-    rightAngleDegrees >= 90
+    !Number.isFinite(leftXM) ||
+    !Number.isFinite(rightXM) ||
+    leftXM <= 0 ||
+    rightXM <= 0
   ) {
     return null;
   }
@@ -173,62 +172,53 @@ export function createReading(
   const state = computeState(params);
   if (!state.selectedReachesScreen || state.selectedOrder < 1) return null;
 
-  const meanSinTheta = (
-    Math.sin(leftAngleDegrees * Math.PI / 180) +
-    Math.sin(rightAngleDegrees * Math.PI / 180)
-  ) / 2;
-  const experimentalWavelengthNm =
-    state.gratingSpacingM * meanSinTheta / state.selectedOrder * 1e9;
+  const meanXM = (leftXM + rightXM) / 2;
+  const angleRadians = Math.atan(meanXM / params.screenDistanceM);
+  const sinTheta = Math.sin(angleRadians);
+  const experimentalWavelengthM = sinTheta / (state.selectedOrder * params.gratingLinesPerM);
 
-  if (!Number.isFinite(experimentalWavelengthNm) || experimentalWavelengthNm <= 0) return null;
+  if (!Number.isFinite(experimentalWavelengthM) || experimentalWavelengthM <= 0) return null;
 
   return {
     trial,
     order: state.selectedOrder,
-    gratingLinesPerMm: params.gratingLinesPerMm,
-    gratingSpacingM: state.gratingSpacingM,
-    leftAngleDegrees,
-    rightAngleDegrees,
-    meanSinTheta,
-    experimentalWavelengthNm,
-    referenceWavelengthNm: params.wavelengthNm,
+    screenDistanceM: params.screenDistanceM,
+    gratingLinesPerM: params.gratingLinesPerM,
+    leftXM,
+    rightXM,
+    meanXM,
+    angleRadians,
+    angleDegrees: angleRadians * 180 / Math.PI,
+    sinTheta,
+    experimentalWavelengthM,
   };
+}
+
+export function meanWavelengthM(readings: Reading[]): number {
+  return readings.length > 0
+    ? readings.reduce((sum, reading) => sum + reading.experimentalWavelengthM, 0) / readings.length
+    : 0;
 }
 
 export function computeResult(readings: Reading[]): ExperimentResult {
   const validReadings = readings.filter((reading) =>
-    Number.isFinite(reading.experimentalWavelengthNm) &&
-    reading.experimentalWavelengthNm > 0 &&
-    Number.isFinite(reading.meanSinTheta) &&
-    reading.gratingSpacingM > 0 &&
+    Number.isFinite(reading.experimentalWavelengthM) &&
+    reading.experimentalWavelengthM > 0 &&
+    Number.isFinite(reading.sinTheta) &&
+    reading.gratingLinesPerM > 0 &&
     reading.order > 0,
   );
-  const mean = (values: number[]) =>
-    values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-
-  const meanWavelengthNm = mean(validReadings.map((reading) => reading.experimentalWavelengthNm));
-  const meanReferenceWavelengthNm = mean(
-    validReadings.map((reading) => reading.referenceWavelengthNm),
-  );
   const graphDenominator = validReadings.reduce((sum, reading) => {
-    const x = reading.order / reading.gratingSpacingM;
+    const x = reading.order * reading.gratingLinesPerM;
     return sum + x * x;
   }, 0);
   const graphNumerator = validReadings.reduce((sum, reading) => {
-    const x = reading.order / reading.gratingSpacingM;
-    return sum + x * reading.meanSinTheta;
+    const x = reading.order * reading.gratingLinesPerM;
+    return sum + x * reading.sinTheta;
   }, 0);
-  const graphWavelengthNm = graphDenominator > 0
-    ? graphNumerator / graphDenominator * 1e9
-    : 0;
-  const percentError = meanReferenceWavelengthNm > 0 && meanWavelengthNm > 0
-    ? Math.abs((meanWavelengthNm - meanReferenceWavelengthNm) / meanReferenceWavelengthNm) * 100
-    : 0;
 
   return {
-    meanWavelengthNm,
-    graphWavelengthNm,
-    meanReferenceWavelengthNm,
-    percentError,
+    meanWavelengthM: meanWavelengthM(validReadings),
+    graphWavelengthM: graphDenominator > 0 ? graphNumerator / graphDenominator : 0,
   };
 }

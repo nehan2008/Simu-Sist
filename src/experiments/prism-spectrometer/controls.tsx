@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import {
   angularDifferenceArcMinutes,
   createVernierReading,
   formatAngleArcMinutes,
   formatVernierReading,
+  normalizeRadians,
 } from './simulation';
 import type { Params, State, VernierReading } from './simulation';
 
 export type ManualReadingTarget = 'directA' | 'directB' | 'minimumA' | 'minimumB';
+export type MeasurementMode = 'experimental' | 'manual';
 
 export interface ManualReadingFields {
   degrees: string;
@@ -18,6 +20,7 @@ export interface ManualReadingFields {
 export type ManualReadingsState = Record<ManualReadingTarget, ManualReadingFields>;
 
 interface ControlsProps {
+  mode: MeasurementMode;
   params: Params;
   state: State;
   directA: VernierReading | null;
@@ -28,9 +31,10 @@ interface ControlsProps {
   trialNumber: number;
   canRecord: boolean;
   error: string;
+  minimumCaptureError: string;
   onParamChange: (updated: Partial<Params>) => void;
+  onModeChange: (mode: MeasurementMode) => void;
   onTogglePrism: () => void;
-  onAlignTelescope: () => void;
   onCaptureDirect: () => void;
   onCaptureMinimum: () => void;
   onManualReadingChange: (target: ManualReadingTarget, updated: Partial<ManualReadingFields>) => void;
@@ -66,7 +70,7 @@ function RangeNumberControl({
 }: RangeNumberControlProps) {
   const [draft, setDraft] = useState(value.toFixed(precision));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setDraft(value.toFixed(precision));
   }, [precision, value]);
 
@@ -75,6 +79,23 @@ function RangeNumberControl({
     if (rawValue.trim() === '') return;
     const number = Number(rawValue);
     if (Number.isFinite(number) && number >= min && number <= max) onChange(number);
+  }
+
+  function handleNumericBlur() {
+    if (draft.trim() === '') {
+      setDraft(value.toFixed(precision));
+      return;
+    }
+
+    const number = Number(draft);
+    if (!Number.isFinite(number) || number < min || number > max) {
+      setDraft(value.toFixed(precision));
+      return;
+    }
+
+    const steppedValue = Number((min + Math.round((number - min) / step) * step).toFixed(6));
+    setDraft(steppedValue.toFixed(precision));
+    if (steppedValue !== value) onChange(steppedValue);
   }
 
   return (
@@ -93,7 +114,7 @@ function RangeNumberControl({
             disabled={disabled}
             aria-label={`${label} numeric value`}
             onChange={(event) => handleNumericChange(event.target.value)}
-            onBlur={() => setDraft(value.toFixed(precision))}
+            onBlur={handleNumericBlur}
           />
           <span>{unit}</span>
         </div>
@@ -117,11 +138,46 @@ function RangeNumberControl({
   );
 }
 
-const WORKFLOW_STEPS = [
-  'Align telescope to direct image',
-  'Direct ray readings',
-  'Locate the turning point',
-  'Record and calculate',
+const EXPERIMENTAL_WORKFLOW_STEPS = [
+  {
+    title: 'Focus and align the direct image',
+    detail: 'The optics are pre-focused. Adjust Illuminated slit width for a sharp, narrow line; use Telescope rotation until Crosswire alignment reads Aligned.',
+  },
+  {
+    title: 'Record the direct ray',
+    detail: 'Keep the prism out and capture Vernier A and B when the direct slit image is aligned.',
+  },
+  {
+    title: 'Insert the prism',
+    detail: 'After both direct readings are captured, select Insert solid-glass prism.',
+  },
+  {
+    title: 'Find minimum deviation',
+    detail: 'Adjust Prism table rotation in small steps and follow the slit image until its motion reverses.',
+  },
+  {
+    title: 'Capture the minimum-deviation image',
+    detail: 'At the turning point, rotate the telescope with the angular dial until the crosswire centers the image, then capture both minimum readings.',
+  },
+  {
+    title: 'Record and calculate',
+    detail: 'Record the trial and check the two deviations, their mean, refractive index, speed, and graph marker.',
+  },
+];
+
+const MANUAL_WORKFLOW_STEPS = [
+  {
+    title: 'Enter the direct-ray readings',
+    detail: 'Enter MSR degrees, 00′ or 30′, and VSC for Verniers A and B; apply each reading.',
+  },
+  {
+    title: 'Enter the minimum-deviation readings',
+    detail: 'Enter and apply the corresponding minimum readings for Verniers A and B.',
+  },
+  {
+    title: 'Record and calculate',
+    detail: 'Record the trial and check the mean deviation, refractive index, speed, and graph marker.',
+  },
 ];
 
 const MANUAL_READING_TARGETS: Array<{ target: ManualReadingTarget; label: string }> = [
@@ -145,38 +201,70 @@ function getManualReading(fields: ManualReadingFields): VernierReading | null {
   );
 }
 
-export function GuidedProcedure({ workflowStep }: { workflowStep: number }) {
+export function GuidedProcedure({
+  mode,
+  workflowStep,
+  prismInserted,
+  rayValid,
+  onAlignTelescope,
+}: {
+  mode: MeasurementMode;
+  workflowStep: number;
+  prismInserted: boolean;
+  rayValid: boolean;
+  onAlignTelescope: () => void;
+}) {
+  const steps = mode === 'experimental' ? EXPERIMENTAL_WORKFLOW_STEPS : MANUAL_WORKFLOW_STEPS;
   return (
     <section className="prism-workflow" aria-labelledby="prism-workflow-heading">
       <div className="prism-section-heading">
         <span className="prism-step-number">01</span>
         <div>
           <h2 id="prism-workflow-heading">Guided procedure</h2>
-          <p>Complete each stage before recording a trial.</p>
+          <p>{mode === 'experimental' ? 'Experimental mode · follow the apparatus controls in order.' : 'Manual mode · apply all four readings before recording.'}</p>
         </div>
       </div>
       <ol className="prism-workflow-list">
-        {WORKFLOW_STEPS.map((step, index) => {
+        {steps.map((step, index) => {
           const number = index + 1;
           const complete = number < workflowStep;
           const current = number === workflowStep;
           return (
             <li
-              key={step}
+              key={step.title}
               className={complete ? 'is-complete' : current ? 'is-current' : ''}
               aria-current={current ? 'step' : undefined}
             >
               <span>{complete ? '✓' : number}</span>
-              {step}
+              <div>
+                <strong>{step.title}</strong>
+                <br />
+                <small>{step.detail}</small>
+              </div>
             </li>
           );
         })}
       </ol>
+      {prismInserted && (
+        <details className="prism-advanced-alignment">
+          <summary>Optional advanced · Align telescope to refracted image</summary>
+          <p>Automatically set the telescope angle to the traced image direction. You can also align it manually with the apparatus dial.</p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onAlignTelescope}
+            disabled={!rayValid}
+          >
+            Align telescope to refracted image
+          </button>
+        </details>
+      )}
     </section>
   );
 }
 
 export default function Controls({
+  mode,
   params,
   state,
   directA,
@@ -187,9 +275,10 @@ export default function Controls({
   trialNumber,
   canRecord,
   error,
+  minimumCaptureError,
   onParamChange,
+  onModeChange,
   onTogglePrism,
-  onAlignTelescope,
   onCaptureDirect,
   onCaptureMinimum,
   onManualReadingChange,
@@ -197,10 +286,9 @@ export default function Controls({
   onRecordTrial,
   onReset,
 }: ControlsProps) {
-  const [mode, setMode] = useState<'experimental' | 'manual'>('experimental');
   const directComplete = Boolean(directA && directB);
   const prismRotationDegrees = params.prismRotationRad * 180 / Math.PI;
-  const telescopeRotationDegrees = params.telescopeRotationRad * 180 / Math.PI;
+  const telescopeRotationDegrees = normalizeRadians(params.telescopeRotationRad) * 180 / Math.PI;
   const imageOffsetDegrees = state.imageOffsetRad * 180 / Math.PI;
   const turningPointDegrees = state.turningPoint
     ? state.turningPoint.rotationRad * 180 / Math.PI
@@ -211,11 +299,6 @@ export default function Controls({
   const deviationB = directB && minimumB
     ? angularDifferenceArcMinutes(minimumB, directB)
     : null;
-
-  function handleReset() {
-    setMode('experimental');
-    onReset();
-  }
 
   return (
     <div className="controls-panel prism-controls">
@@ -232,7 +315,7 @@ export default function Controls({
             type="button"
             className={mode === 'experimental' ? 'is-selected' : ''}
             aria-pressed={mode === 'experimental'}
-            onClick={() => setMode('experimental')}
+            onClick={() => onModeChange('experimental')}
           >
             Experimental
           </button>
@@ -240,7 +323,7 @@ export default function Controls({
             type="button"
             className={mode === 'manual' ? 'is-selected' : ''}
             aria-pressed={mode === 'manual'}
-            onClick={() => setMode('manual')}
+            onClick={() => onModeChange('manual')}
           >
             Manual
           </button>
@@ -331,20 +414,23 @@ export default function Controls({
           <span className="prism-step-number">03</span>
           <div>
             <h2 id="prism-direct-heading">Direct ray</h2>
-            <p>Bypass the prism and align the telescope to the slit.</p>
+            <p>Keep the prism out; align the crosswire, then capture Vernier A and B.</p>
           </div>
         </div>
         <RangeNumberControl
           id="prism-telescope-rotation"
-          label="Telescope rotation"
+          label="Telescope angular dial"
           value={telescopeRotationDegrees}
           min={0}
-          max={90}
+          max={359.99}
           step={1 / 60}
           unit="°"
-          precision={2}
+          precision={4}
           onChange={(degrees) => onParamChange({ telescopeRotationRad: degrees * Math.PI / 180 })}
         />
+        <p className="prism-formula-note">
+          Drag the circular dial or telescope in the apparatus to align the crosswire; the angle display and Vernier A/B follow the same rotation.
+        </p>
         <div className="prism-alignment-readout" role="status">
           <span>Crosswire alignment</span>
           <strong className={state.telescopeAligned ? 'is-aligned' : ''}>
@@ -372,7 +458,7 @@ export default function Controls({
           <span className="prism-step-number">04</span>
           <div>
             <h2 id="prism-minimum-heading">Minimum deviation</h2>
-            <p>Rotate the prism and follow the slit image to its turning point.</p>
+            <p>Rotate to the image reversal, use the telescope dial to center the crosswire on the image, then capture both readings.</p>
           </div>
         </div>
         <button
@@ -384,16 +470,6 @@ export default function Controls({
         >
           {params.prismInserted ? 'Remove solid-glass prism' : 'Insert solid-glass prism'}
         </button>
-        {params.prismInserted && (
-          <button
-            type="button"
-            className="btn btn-secondary prism-insert-button"
-            onClick={onAlignTelescope}
-            disabled={!state.ray.valid}
-          >
-            Align telescope to refracted image
-          </button>
-        )}
         <RangeNumberControl
           id="prism-table-rotation"
           label="Prism table rotation"
@@ -405,6 +481,9 @@ export default function Controls({
           disabled={!params.prismInserted}
           onChange={(degrees) => onParamChange({ prismRotationRad: degrees * Math.PI / 180 })}
         />
+        <p className="prism-formula-note">
+          Drag the prism table in the apparatus or use this control; the prism face and Snell-law ray trace rotate together.
+        </p>
         <RangeNumberControl
           id="prism-slit-width"
           label="Illuminated slit width"
@@ -429,10 +508,11 @@ export default function Controls({
           type="button"
           className="btn btn-primary prism-action-button"
           onClick={onCaptureMinimum}
-          disabled={!params.prismInserted || !state.atTurningPoint || !state.telescopeAligned}
+          disabled={!params.prismInserted}
         >
           Capture minimum-deviation Vernier A &amp; B
         </button>
+        {minimumCaptureError && <p className="prism-error" role="alert">{minimumCaptureError}</p>}
         <div className="prism-reading-status-grid">
           <div><span>Minimum A</span><strong>{readingStatus(minimumA)}</strong></div>
           <div><span>Minimum B</span><strong>{readingStatus(minimumB)}</strong></div>
@@ -459,7 +539,7 @@ export default function Controls({
         {error && <p className="prism-error" role="alert">{error}</p>}
       </section>
 
-      <button type="button" className="btn btn-secondary prism-reset-button" onClick={handleReset}>
+      <button type="button" className="btn btn-secondary prism-reset-button" onClick={onReset}>
         ↺ Reset experiment
       </button>
     </div>

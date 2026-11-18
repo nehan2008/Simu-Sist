@@ -8,6 +8,8 @@ export const MODEL_REFERENCE_CURRENT_UA = 2;
 export const MODEL_REFERENCE_TEMPERATURE_K = 298.15;
 export const MODEL_REFERENCE_VOLTAGE_V = 3;
 export const PDF_BAND_GAP_FACTOR_EV_PER_K = 3.973e-4;
+export const MIN_THERMAL_SPEED_MULTIPLIER = 0.25;
+export const MAX_THERMAL_SPEED_MULTIPLIER = 5;
 
 const BOLTZMANN_CONSTANT_EV_PER_K = 8.617333262e-5;
 const HEATER_INPUT_C_PER_S = 0.34;
@@ -20,6 +22,8 @@ export interface Params {
   powerOn: boolean;
   stirringOn: boolean;
   reverseVoltageV: number;
+  heatingSpeedMultiplier: number;
+  coolingSpeedMultiplier: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -27,6 +31,8 @@ export const DEFAULT_PARAMS: Params = {
   powerOn: false,
   stirringOn: false,
   reverseVoltageV: MODEL_REFERENCE_VOLTAGE_V,
+  heatingSpeedMultiplier: 1,
+  coolingSpeedMultiplier: 1,
 };
 
 export type ThermalPhase = 'ambient' | 'heating' | 'cooling';
@@ -113,7 +119,12 @@ export function computeReverseCurrentUa(temperatureC: number, reverseVoltageV: n
 export function tick(params: Params, state: State, deltaSeconds: number): State {
   if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return state;
 
-  const delta = deltaSeconds;
+  const heatingSpeedMultiplier = Number.isFinite(params.heatingSpeedMultiplier)
+    ? clamp(params.heatingSpeedMultiplier, MIN_THERMAL_SPEED_MULTIPLIER, MAX_THERMAL_SPEED_MULTIPLIER)
+    : 1;
+  const coolingSpeedMultiplier = Number.isFinite(params.coolingSpeedMultiplier)
+    ? clamp(params.coolingSpeedMultiplier, MIN_THERMAL_SPEED_MULTIPLIER, MAX_THERMAL_SPEED_MULTIPLIER)
+    : 1;
   const temperatureDifference = state.temperatureC - ROOM_TEMPERATURE_C;
   let temperatureC = state.temperatureC;
   let temperatureRateCPerS = 0;
@@ -127,8 +138,10 @@ export function tick(params: Params, state: State, deltaSeconds: number): State 
     const equilibriumC = ROOM_TEMPERATURE_C + heaterInput / HEAT_LOSS_PER_S;
     temperatureC =
       equilibriumC +
-      (state.temperatureC - equilibriumC) * Math.exp(-HEAT_LOSS_PER_S * delta);
-    temperatureRateCPerS = heaterInput - HEAT_LOSS_PER_S * temperatureDifference;
+      (state.temperatureC - equilibriumC) *
+        Math.exp(-HEAT_LOSS_PER_S * deltaSeconds * heatingSpeedMultiplier);
+    temperatureRateCPerS =
+      (heaterInput - HEAT_LOSS_PER_S * temperatureDifference) * heatingSpeedMultiplier;
 
     if (temperatureC >= MAX_SAFE_TEMPERATURE_C) {
       temperatureC = MAX_SAFE_TEMPERATURE_C;
@@ -138,8 +151,9 @@ export function tick(params: Params, state: State, deltaSeconds: number): State 
   } else if (temperatureDifference > 0.02) {
     const coolingRate = (params.stirringOn ? 1.2 : 1) / COOLING_TIME_CONSTANT_S;
     temperatureC =
-      ROOM_TEMPERATURE_C + temperatureDifference * Math.exp(-coolingRate * delta);
-    temperatureRateCPerS = -(temperatureDifference * coolingRate);
+      ROOM_TEMPERATURE_C +
+      temperatureDifference * Math.exp(-coolingRate * deltaSeconds * coolingSpeedMultiplier);
+    temperatureRateCPerS = -(temperatureDifference * coolingRate * coolingSpeedMultiplier);
   } else {
     temperatureC = ROOM_TEMPERATURE_C;
   }
@@ -250,10 +264,7 @@ export function computeEnergyGap(readings: Reading[]): EnergyGapResult {
   );
   const slope = covariance / varianceX;
   const intercept = meanY - slope * meanX;
-  const bandGapEv =
-    slope < 0
-      ? -slope * 1000 * PDF_BAND_GAP_FACTOR_EV_PER_K
-      : null;
+  const bandGapEv = Math.abs(slope) * 1000 * PDF_BAND_GAP_FACTOR_EV_PER_K;
   const minX = Math.min(...points.map((point) => point.x));
   const maxX = Math.max(...points.map((point) => point.x));
 

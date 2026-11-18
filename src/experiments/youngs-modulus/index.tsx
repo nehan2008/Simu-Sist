@@ -8,7 +8,7 @@
  * independently entered manual experiment parameters.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import Controls from './controls';
 import ExperimentCanvas from './canvas';
@@ -16,15 +16,29 @@ import SliderInput from '../../components/ui/SliderInput';
 import {
   DEFAULT_PARAMS,
   MATERIALS,
+  AUTO_MAX_READINGS,
+  AUTO_MIN_READINGS,
   computeState,
   computeE,
   computeResult,
+  createAutomaticReading,
+  getAutomaticLoads,
 } from './simulation';
-import type { MaterialKey, Params, Reading } from './simulation';
+import type { MaterialKey, ObservationSequence, Params, Reading } from './simulation';
 
 // ── SVG Line Graph ────────────────────────────────────────────────────────────
 
-interface GraphPoint { x: number; y: number; label: string }
+interface GraphPoint {
+  x: number;
+  y: number;
+  label: string;
+  sequence: ObservationSequence;
+}
+
+const SEQUENCE_COLORS: Record<ObservationSequence, string> = {
+  Loading: '#64c9a5',
+  Unloading: '#eca95d',
+};
 
 function LoadDepressionGraph({ readings }: { readings: Reading[] }) {
   if (readings.length === 0) {
@@ -32,7 +46,7 @@ function LoadDepressionGraph({ readings }: { readings: Reading[] }) {
       <div className="graph-section">
         <h3>Load vs Depression</h3>
         <p className="graph-note" role="status">
-          No observations yet. Add a microscope or manual observation to plot the data.
+          No observations yet. Add loading and unloading readings to plot the data.
         </p>
       </div>
     );
@@ -52,14 +66,19 @@ function LoadDepressionGraph({ readings }: { readings: Reading[] }) {
   const minY = 0;
   const maxY = Math.max(...ys) * 1.15 || 1;
 
-  const toSvg = (W: number, y: number, source: Reading['source']): GraphPoint => ({
+  const toSvg = (
+    W: number,
+    y: number,
+    source: Reading['source'],
+    sequence: ObservationSequence,
+  ): GraphPoint => ({
     x: PAD.left + ((W - minW) / (maxW - minW)) * plotW,
     y: PAD.top + plotH - ((y - minY) / (maxY - minY)) * plotH,
-    label: `${source}: W=${W.toFixed(2)} N, y=${y.toFixed(3)} mm`,
+    label: `${sequence} · ${source}: W=${W.toFixed(2)} N, y=${y.toFixed(3)} mm`,
+    sequence,
   });
 
-  const points = readings.map((r) => toSvg(r.W, r.y * 1000, r.source));
-  const polyline = points.map((p) => `${p.x},${p.y}`).join(' ');
+  const points = readings.map((r) => toSvg(r.W, r.y * 1000, r.source, r.sequence));
 
   // Axis ticks
   const xTicks = 5;
@@ -133,20 +152,37 @@ function LoadDepressionGraph({ readings }: { readings: Reading[] }) {
         </text>
 
         {/* Data line */}
-        {points.length > 1 && (
-          <polyline points={polyline} fill="none" stroke="var(--accent)" strokeWidth={1.5} />
-        )}
+        {(['Loading', 'Unloading'] as const).map((sequence) => {
+          const sequencePoints = points.filter((point) => point.sequence === sequence);
+          return sequencePoints.length > 1 ? (
+            <polyline
+              key={sequence}
+              points={sequencePoints.map((point) => `${point.x},${point.y}`).join(' ')}
+              fill="none"
+              stroke={SEQUENCE_COLORS[sequence]}
+              strokeWidth={1.8}
+            />
+          ) : null;
+        })}
 
         {/* Data points */}
         {points.map((p, i) => (
           <g key={i}>
-            <circle cx={p.x} cy={p.y} r={4} fill="var(--accent)" />
+            <circle cx={p.x} cy={p.y} r={4} fill={SEQUENCE_COLORS[p.sequence]} />
             <title>{p.label}</title>
           </g>
         ))}
       </svg>
+      <div className="youngs-graph-legend" aria-label="Graph sequence legend">
+        {(['Loading', 'Unloading'] as const).map((sequence) => (
+          <span key={sequence}>
+            <i style={{ backgroundColor: SEQUENCE_COLORS[sequence] }} />
+            {sequence}
+          </span>
+        ))}
+      </div>
       <p className="graph-note">
-        A straight line through the origin confirms the linear elastic behaviour predicted by beam theory.
+        Separate colors distinguish loading and unloading observations; both follow the measured load–depression response.
       </p>
     </div>
   );
@@ -158,6 +194,14 @@ export default function YoungsModulusExperiment() {
   const [activeTab, setActiveTab] = useState<'microscope' | 'manual'>('microscope');
   const [params, setParams] = useState<Params>(DEFAULT_PARAMS);
   const [readings, setReadings] = useState<Reading[]>([]);
+  const [sequence, setSequence] = useState<ObservationSequence>('Loading');
+  const [requestedReadingCount, setRequestedReadingCount] = useState(6);
+  const [automaticProgress, setAutomaticProgress] = useState<{
+    sequence: ObservationSequence;
+    completed: number;
+    total: number;
+  } | null>(null);
+  const [automaticError, setAutomaticError] = useState('');
   const [microscopeReading, setMicroscopeReading] = useState<number>(0);
   const [zeroReading, setZeroReading] = useState<number>(0);
   const [manualMaterial, setManualMaterial] = useState<MaterialKey>('steel');
@@ -169,8 +213,32 @@ export default function YoungsModulusExperiment() {
   const [manualCurrentReading, setManualCurrentReading] = useState('');
   const [manualError, setManualError] = useState('');
   const [showResult, setShowResult] = useState(false);
+  const paramsRef = useRef(params);
+  const readingsRef = useRef(readings);
+  const zeroReadingRef = useRef(zeroReading);
+  const automaticRunIdRef = useRef(0);
+  const automaticTimeoutRef = useRef<number | null>(null);
 
   const state = useMemo(() => computeState(params), [params]);
+
+  useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
+
+  useEffect(() => {
+    readingsRef.current = readings;
+  }, [readings]);
+
+  useEffect(() => {
+    zeroReadingRef.current = zeroReading;
+  }, [zeroReading]);
+
+  useEffect(() => () => {
+    automaticRunIdRef.current += 1;
+    if (automaticTimeoutRef.current !== null) {
+      window.clearTimeout(automaticTimeoutRef.current);
+    }
+  }, []);
 
   const depression_mm = Math.abs(microscopeReading - zeroReading);
   const depression_m = depression_mm / 1000;
@@ -196,6 +264,7 @@ export default function YoungsModulusExperiment() {
   }
 
   function handleSetZero() {
+    zeroReadingRef.current = microscopeReading;
     setZeroReading(microscopeReading);
   }
 
@@ -205,6 +274,7 @@ export default function YoungsModulusExperiment() {
     const reading: Reading = {
       no,
       source: 'Microscope',
+      sequence,
       material: params.material,
       mass: params.mass,
       W: state.W,
@@ -217,8 +287,63 @@ export default function YoungsModulusExperiment() {
       E_calculated: currentE,
       E_ref: state.E_ref,
     };
+    readingsRef.current = [...readingsRef.current, reading];
     setReadings((prev) => [...prev, reading]);
     setShowResult(false);
+  }
+
+  function handleRunAutomaticSequence(direction: ObservationSequence) {
+    const masses = getAutomaticLoads(requestedReadingCount, direction);
+    if (masses.length === 0 || automaticProgress) return;
+
+    automaticRunIdRef.current += 1;
+    const runId = automaticRunIdRef.current;
+    setSequence(direction);
+    setAutomaticError('');
+    setAutomaticProgress({ sequence: direction, completed: 0, total: masses.length });
+
+    const recordAt = (index: number) => {
+      if (automaticRunIdRef.current !== runId) return;
+      if (index >= masses.length) {
+        setAutomaticProgress(null);
+        automaticTimeoutRef.current = null;
+        return;
+      }
+
+      const stepParams: Params = { ...paramsRef.current, mass: masses[index] };
+      const reading = createAutomaticReading(
+        readingsRef.current.length + 1,
+        direction,
+        stepParams,
+        zeroReadingRef.current,
+      );
+      if (!reading) {
+        setAutomaticError(
+          'Automatic pass stopped because the simulated depression exceeds the microscope scale. Adjust the beam dimensions and try again.',
+        );
+        setAutomaticProgress(null);
+        automaticTimeoutRef.current = null;
+        return;
+      }
+
+      paramsRef.current = stepParams;
+      setParams(stepParams);
+      setMicroscopeReading(reading.microscopeReading);
+      automaticTimeoutRef.current = window.setTimeout(() => {
+        if (automaticRunIdRef.current !== runId) return;
+        readingsRef.current = [...readingsRef.current, reading];
+        setReadings(readingsRef.current);
+        setShowResult(false);
+        setAutomaticProgress({
+          sequence: direction,
+          completed: index + 1,
+          total: masses.length,
+        });
+        recordAt(index + 1);
+      }, 500);
+    };
+
+    recordAt(0);
   }
 
   function handleAddManualObservation(event: FormEvent<HTMLFormElement>) {
@@ -301,6 +426,7 @@ export default function YoungsModulusExperiment() {
     const reading: Reading = {
       no: readings.length + 1,
       source: 'Manual',
+      sequence,
       material: manualParams.material,
       mass: manualParams.mass,
       W: manualState.W,
@@ -313,6 +439,7 @@ export default function YoungsModulusExperiment() {
       E_calculated: ECalculated,
       E_ref: manualState.E_ref,
     };
+    readingsRef.current = [...readingsRef.current, reading];
     setReadings((prev) => [...prev, reading]);
     setManualCurrentReading('');
     setShowResult(false);
@@ -343,7 +470,18 @@ export default function YoungsModulusExperiment() {
   }
 
   function handleReset() {
+    automaticRunIdRef.current += 1;
+    if (automaticTimeoutRef.current !== null) {
+      window.clearTimeout(automaticTimeoutRef.current);
+      automaticTimeoutRef.current = null;
+    }
+    setParams(DEFAULT_PARAMS);
+    setRequestedReadingCount(6);
+    readingsRef.current = [];
     setReadings([]);
+    setSequence('Loading');
+    setAutomaticProgress(null);
+    setAutomaticError('');
     setMicroscopeReading(0);
     setZeroReading(0);
     setManualMaterial('steel');
@@ -380,6 +518,7 @@ export default function YoungsModulusExperiment() {
               aria-selected={activeTab === 'microscope'}
               aria-controls="microscope-tabpanel"
               tabIndex={activeTab === 'microscope' ? 0 : -1}
+              disabled={automaticProgress !== null}
               onClick={() => setActiveTab('microscope')}
             >
               Microscope
@@ -392,6 +531,7 @@ export default function YoungsModulusExperiment() {
               aria-selected={activeTab === 'manual'}
               aria-controls="manual-tabpanel"
               tabIndex={activeTab === 'manual' ? 0 : -1}
+              disabled={automaticProgress !== null}
               onClick={() => setActiveTab('manual')}
             >
               Manual Entry
@@ -406,7 +546,22 @@ export default function YoungsModulusExperiment() {
             tabIndex={0}
             hidden={activeTab !== 'microscope'}
           >
-              <Controls params={params} onChange={handleParamChange} />
+              <Controls
+                params={params}
+                disabled={automaticProgress !== null}
+                sequence={sequence}
+                requestedReadingCount={requestedReadingCount}
+                automaticProgress={automaticProgress}
+                automaticError={automaticError}
+                onChange={handleParamChange}
+                onSequenceChange={setSequence}
+                onRequestedReadingCountChange={(count) => {
+                  if (Number.isInteger(count) && count >= AUTO_MIN_READINGS && count <= AUTO_MAX_READINGS) {
+                    setRequestedReadingCount(count);
+                  }
+                }}
+                onRunAutomaticSequence={handleRunAutomaticSequence}
+              />
 
               <div className="microscope-panel">
                 <h3>Virtual Microscope</h3>
@@ -432,6 +587,7 @@ export default function YoungsModulusExperiment() {
                   max={10}
                   step={0.01}
                   unit=" mm"
+                  disabled={automaticProgress !== null}
                   onChange={setMicroscopeReading}
                 />
 
@@ -439,6 +595,7 @@ export default function YoungsModulusExperiment() {
                   <button
                     type="button"
                     className="btn btn-secondary"
+                    disabled={automaticProgress !== null}
                     onClick={handleSetZero}
                     title="Record the current microscope reading as the reference zero (before applying load)"
                   >
@@ -448,7 +605,7 @@ export default function YoungsModulusExperiment() {
                     type="button"
                     className="btn btn-primary"
                     onClick={handleTakeReading}
-                    disabled={depression_m <= 0}
+                    disabled={depression_m <= 0 || automaticProgress !== null}
                     title={depression_m <= 0 ? 'Adjust the crosshair away from zero to record a depression' : 'Record this reading'}
                   >
                     Take Reading
@@ -458,7 +615,9 @@ export default function YoungsModulusExperiment() {
                 {depression_m > 0 && (
                   <p className="microscope-calculation">
                     Theoretical y = {(state.yTheoretical * 1000).toFixed(4)} mm &nbsp;|&nbsp;
-                    {currentE > 0 ? `E = ${(currentE / 1e9).toFixed(1)} GPa` : '—'}
+                    {currentE > 0
+                      ? `E = ${currentE.toExponential(3)} N/m² (${(currentE / 1e9).toFixed(1)} GPa)`
+                      : '—'}
                   </p>
                 )}
               </div>
@@ -576,7 +735,10 @@ export default function YoungsModulusExperiment() {
               <h3>Result</h3>
               <div className="result-row">
                 <span>Mean E (experimental)</span>
-                <span className="result-value">{(result.meanE / 1e9).toFixed(2)} GPa</span>
+                <span className="result-value">
+                  {result.meanE.toExponential(3)} N/m²
+                  <small>({(result.meanE / 1e9).toFixed(2)} GPa)</small>
+                </span>
               </div>
               <div className="result-row">
                 <span>
@@ -584,7 +746,10 @@ export default function YoungsModulusExperiment() {
                     ? 'mean observation reference'
                     : state.materialLabel})
                 </span>
-                <span className="result-ref">{(result.E_ref / 1e9).toFixed(0)} GPa</span>
+                <span className="result-ref">
+                  {result.E_ref.toExponential(3)} N/m²
+                  <small>({(result.E_ref / 1e9).toFixed(0)} GPa)</small>
+                </span>
               </div>
               <div className="result-row">
                 <span>Percentage error</span>
@@ -598,11 +763,12 @@ export default function YoungsModulusExperiment() {
         </aside>
 
         <div className="youngs-modulus-observations">
-          <p className="section-label">Observation Table</p>
+          <p className="section-label">Loading &amp; Unloading Observation Table</p>
           <table className="obs-table" aria-label="Young's Modulus observations">
             <thead>
               <tr>
                 <th>No.</th>
+                <th>Sequence</th>
                 <th>Source</th>
                 <th>Material</th>
                 <th>Mass (kg)</th>
@@ -610,13 +776,18 @@ export default function YoungsModulusExperiment() {
                 <th>Zero reading (mm)</th>
                 <th>Microscope reading (mm)</th>
                 <th>Depression y (mm)</th>
-                <th>E calculated (GPa)</th>
+                <th>E calculated (N/m²)</th>
               </tr>
             </thead>
             <tbody>
               {readings.length > 0 ? readings.map((r) => (
                 <tr key={r.no} className="observation-row">
                   <td data-label="No.">{r.no}</td>
+                  <td data-label="Sequence">
+                    <span className={`observation-sequence observation-sequence--${r.sequence.toLowerCase()}`}>
+                      {r.sequence}
+                    </span>
+                  </td>
                   <td data-label="Source">
                     <span className={`observation-source observation-source--${r.source.toLowerCase()}`}>
                       {r.source}
@@ -628,14 +799,19 @@ export default function YoungsModulusExperiment() {
                   <td data-label="Zero reading (mm)">{r.zeroReading.toFixed(2)}</td>
                   <td data-label="Microscope reading (mm)">{r.microscopeReading.toFixed(2)}</td>
                   <td data-label="Depression y (mm)">{(r.y * 1000).toFixed(3)}</td>
-                  <td data-label="E calculated (GPa)">
-                    {r.E_calculated > 0 ? (r.E_calculated / 1e9).toFixed(2) : '—'}
+                  <td data-label="E calculated (N/m²)">
+                    {r.E_calculated > 0 ? (
+                      <>
+                        <strong>{r.E_calculated.toExponential(3)} N/m²</strong>
+                        <span className="observation-gpa">({(r.E_calculated / 1e9).toFixed(2)} GPa)</span>
+                      </>
+                    ) : '—'}
                   </td>
                 </tr>
               )) : (
                 <tr className="observations-empty-row">
-                  <td colSpan={9} className="observations-empty">
-                    No observations yet. Use the microscope or manual entry to add one.
+                  <td colSpan={10} className="observations-empty">
+                    No observations yet. Use the microscope, manual entry, or automatic loading and unloading controls.
                   </td>
                 </tr>
               )}

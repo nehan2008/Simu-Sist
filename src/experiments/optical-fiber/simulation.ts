@@ -5,7 +5,12 @@
 
 export const SCREEN_CIRCLE_DIAMETERS_MM = [5, 10, 15, 20, 25] as const;
 export type ScreenCircleDiameterMm = (typeof SCREEN_CIRCLE_DIAMETERS_MM)[number];
-export type PowerReadingId = 'P01' | 'P02' | 'P03' | 'P04' | 'P05';
+export const MIN_SCREEN_DISTANCE_CM = 0.1;
+export const MAX_SCREEN_DISTANCE_CM = 50;
+export const MIN_CUSTOM_FIBER_LENGTH_M = 0.1;
+export const MAX_CUSTOM_FIBER_LENGTH_M = 50;
+export const DEFAULT_CUSTOM_FIBER_LENGTH_M = 3;
+export type PowerReadingId = 'P01' | 'P02' | 'P03' | 'P04' | 'P05' | 'P06';
 
 export interface NumericalApertureParams {
   screenDistanceM: number;
@@ -36,13 +41,18 @@ export interface PowerMeterReading {
 }
 
 export interface AttenuationComparison {
-  id: 'oneMetreBending' | 'fiveMetreBending' | 'combinedVsOneMetre' | 'combinedVsFiveMetre';
+  id:
+    | 'oneMetreBending'
+    | 'fiveMetreBending'
+    | 'combinedVsOneMetre'
+    | 'combinedVsFiveMetre'
+    | 'customVsModel';
   label: string;
   formula: string;
   valueDb: number | null;
 }
 
-export const POWER_READING_IDS: readonly PowerReadingId[] = ['P01', 'P02', 'P03', 'P04', 'P05'];
+export const POWER_READING_IDS: readonly PowerReadingId[] = ['P01', 'P02', 'P03', 'P04', 'P05', 'P06'];
 
 export const POWER_READING_DESCRIPTIONS: Record<PowerReadingId, string> = {
   P01: '1 m fiber · straight',
@@ -50,6 +60,7 @@ export const POWER_READING_DESCRIPTIONS: Record<PowerReadingId, string> = {
   P03: '5 m fiber · straight',
   P04: '5 m fiber · four mandrel turns',
   P05: 'Combined cables · inline adaptor',
+  P06: 'Custom-length fiber · straight',
 };
 
 export function isValidNumericalApertureParams(
@@ -57,7 +68,8 @@ export function isValidNumericalApertureParams(
 ): boolean {
   return (
     Number.isFinite(params.screenDistanceM) &&
-    params.screenDistanceM > 0 &&
+    params.screenDistanceM >= MIN_SCREEN_DISTANCE_CM / 100 &&
+    params.screenDistanceM <= MAX_SCREEN_DISTANCE_CM / 100 &&
     Number.isFinite(params.spotDiameterM) &&
     params.spotDiameterM > 0 &&
     SCREEN_CIRCLE_DIAMETERS_MM.includes(params.targetCircleMm)
@@ -131,8 +143,33 @@ export function isValidPowerMeterValue(value: number): boolean {
   return Number.isFinite(value) && value >= -120 && value <= 30;
 }
 
+export function estimateCustomPowerMeterValueDb(
+  readings: Partial<Record<PowerReadingId, number>>,
+  customLengthM: number,
+): number | null {
+  const oneMetreReading = readings.P01;
+  const fiveMetreReading = readings.P03;
+  if (
+    oneMetreReading === undefined ||
+    fiveMetreReading === undefined ||
+    !isValidPowerMeterValue(oneMetreReading) ||
+    !isValidPowerMeterValue(fiveMetreReading) ||
+    !Number.isFinite(customLengthM) ||
+    customLengthM < MIN_CUSTOM_FIBER_LENGTH_M ||
+    customLengthM > MAX_CUSTOM_FIBER_LENGTH_M
+  ) {
+    return null;
+  }
+
+  const measuredSlopeDbPerM = (fiveMetreReading - oneMetreReading) / (5 - 1);
+  const estimateDb = oneMetreReading + measuredSlopeDbPerM * (customLengthM - 1);
+  return isValidPowerMeterValue(estimateDb) ? estimateDb : null;
+}
+
 export function calculateAttenuationComparisons(
   readings: Partial<Record<PowerReadingId, number>>,
+  customLengthM = DEFAULT_CUSTOM_FIBER_LENGTH_M,
+  recordedCustomLengthM: number | null = null,
 ): AttenuationComparison[] {
   const difference = (minuend: PowerReadingId, subtrahend: PowerReadingId) => {
     const first = readings[minuend];
@@ -144,6 +181,11 @@ export function calculateAttenuationComparisons(
       ? first - second
       : null;
   };
+
+  const customEstimate = estimateCustomPowerMeterValueDb(readings, customLengthM);
+  const customLengthMatches =
+    recordedCustomLengthM !== null &&
+    Math.abs(recordedCustomLengthM - customLengthM) < 1e-9;
 
   return [
     {
@@ -169,6 +211,17 @@ export function calculateAttenuationComparisons(
       label: 'Combined setup vs P03',
       formula: 'P05 − P03',
       valueDb: difference('P05', 'P03'),
+    },
+    {
+      id: 'customVsModel',
+      label: 'Custom cable vs length estimate',
+      formula: 'P06 − estimated reading',
+      valueDb: customLengthMatches &&
+        readings.P06 !== undefined &&
+        isValidPowerMeterValue(readings.P06) &&
+        customEstimate !== null
+        ? readings.P06 - customEstimate
+        : null,
     },
   ];
 }
